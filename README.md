@@ -4,6 +4,6 @@ Why use real hardware or a famous architecture when you can create your own VM? 
 
 ## Quick setup:
 ```
-	$ make
-	$ ./evm
+$ make
+$ ./evm
 ```
