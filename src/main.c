@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
+#include <string.h>
+#include <errno.h>
 
 #define UNUSED(x) (void)(x)
 #define UNIMPLEMENTED(message) \
@@ -236,6 +238,59 @@ void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size) 
 	}
 }
 
+void evm_load_program_from_file(EVM *evm, const char *file_path) {
+	FILE *f = fopen(file_path, "rb");
+	if (f == NULL) {
+		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	if (fseek(f, 0, SEEK_END) < 0) {
+		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	long m = ftell(f);
+	if (m < 0) {
+		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	assert(m % sizeof(evm->program[0]) == 0);
+	assert((size_t)m <= EVM_PROGRAM_CAPACITY * sizeof(evm->program[0]));
+
+	if (fseek(f, 0, SEEK_SET) < 0) {
+		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	evm->program_size = fread(evm->program, sizeof(evm->program[0]), m / sizeof(evm->program[0]), f);
+
+	if (ferror(f)) {
+		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	fclose(f);
+}
+
+void evm_save_program_to_file(Inst *program, size_t program_size, const char *file_path) {
+	FILE *f = fopen(file_path, "wb");
+	if (f == NULL) {
+		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	fwrite(program, sizeof(program[0]), program_size, f);
+
+	if (ferror(f)) {
+		fprintf(stderr, "Could not write to file %s: %s\n", file_path, strerror(errno));
+		exit(1);
+	}
+
+	fclose(f);
+}
+
 EVM Global_evm = {0};
 /* FIBONACCI NUMBER GENERATOR */
 Inst program[] = {
@@ -251,7 +306,9 @@ int main(int argc, char **argv) {
 	UNUSED(argc);
 	UNUSED(argv);
 
-	evm_load_program_from_memory(&Global_evm, program, ARRAY_SIZE(program));
+	/* evm_save_program_to_file(program, ARRAY_SIZE(program), "./fib.evm"); */
+	/* evm_load_program_from_memory(&Global_evm, program, ARRAY_SIZE(program)); */
+	evm_load_program_from_file(&Global_evm, "./fib.evm");
 	for (int i = 0; i < EVM_EXEWCUTION_LIMIT && !Global_evm.halt; ++i) {
 		Trap trap = evm_execute_inst(&Global_evm);
 		if (trap != TRAP_OK) {
