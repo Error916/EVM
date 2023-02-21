@@ -237,6 +237,7 @@ void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size) 
 }
 
 EVM Global_evm = {0};
+/* FIBONACCI NUMBER GENERATOR */
 Inst program[] = {
 	MAKE_INST_PUSH(0),	// 0
 	MAKE_INST_PUSH(1),	// 1
