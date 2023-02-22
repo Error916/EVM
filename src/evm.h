@@ -1,3 +1,6 @@
+#ifndef EVM_H_
+#define EVM_H_
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -21,7 +24,8 @@
 
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
-#define EVM_EXEWCUTION_LIMIT 69
+
+typedef int64_t Word;
 
 typedef enum {
 	TRAP_OK = 0,
@@ -32,6 +36,70 @@ typedef enum {
 	TRAP_ILLEGAL_OPERAND,
 	TRAP_DIV_BY_ZERO,
 } Trap;
+
+const char *trap_as_cstr(Trap trap);
+
+typedef enum {
+	INST_NOP = 0,
+	INST_PUSH,
+	INST_DUP,
+	INST_PLUS,
+	INST_MINUS,
+	INST_MULT,
+	INST_DIV,
+	INST_JMP,
+	INST_JMP_IF,
+	INST_EQ,
+	INST_HALT,
+	INST_PRINT_DEBUG,
+} Inst_Type;
+
+typedef struct {
+	Inst_Type type;
+	Word operand;
+} Inst;
+
+const char *inst_type_as_cstr(Inst_Type type);
+
+typedef struct {
+	Word stack[EVM_STACK_CAPACITY];
+	Word stack_size;
+
+	Inst program[EVM_PROGRAM_CAPACITY];
+	Word program_size;
+	Word ip;
+
+	uint8_t halt;
+} EVM;
+
+Trap evm_execute_inst(EVM *evm);
+Trap evm_execute_program(EVM *evm, int limit);
+void evm_dump_stack(FILE *stream, const EVM *evm);
+void evm_push_inst(EVM *evm, Inst inst);
+void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size);
+void evm_load_program_from_file(EVM *evm, const char *file_path);
+void evm_save_program_to_file(const EVM *evm, const char *file_path);
+
+typedef struct {
+	size_t count;
+	const char *data;
+} String_View;
+
+String_View cstr_as_sv(const char *cstr);
+int sv_eq(String_View a, String_View b);
+int sv_to_int(String_View sv);
+String_View sv_trim_left(String_View sv);
+String_View sv_trim_right(String_View sv);
+String_View sv_trim(String_View sv);
+String_View sv_chop_by_delim(String_View *sv, char delim);
+String_View sv_slurp_file(const char *file_path);
+
+size_t evm_transalte_source(String_View source, Inst *program, size_t program_capacity);
+Inst evm_transalte_line(String_View line);
+
+#endif // EVM_H_
+
+#ifdef EVM_IMPLEMENTATION
 
 const char *trap_as_cstr(Trap trap) {
 	switch (trap) {
@@ -53,23 +121,6 @@ const char *trap_as_cstr(Trap trap) {
 			UNREACHABLE("NOT EXISTING TRAP");
 	}
 }
-
-typedef int64_t Word;
-
-typedef enum {
-	INST_NOP = 0,
-	INST_PUSH,
-	INST_DUP,
-	INST_PLUS,
-	INST_MINUS,
-	INST_MULT,
-	INST_DIV,
-	INST_JMP,
-	INST_JMP_IF,
-	INST_EQ,
-	INST_HALT,
-	INST_PRINT_DEBUG,
-} Inst_Type;
 
 const char *inst_type_as_cstr(Inst_Type type) {
 	switch (type) {
@@ -101,34 +152,6 @@ const char *inst_type_as_cstr(Inst_Type type) {
 			UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
 }
-
-typedef struct {
-	Inst_Type type;
-	Word operand;
-} Inst;
-
-typedef struct {
-	Word stack[EVM_STACK_CAPACITY];
-	Word stack_size;
-
-	Inst program[EVM_PROGRAM_CAPACITY];
-	Word program_size;
-	Word ip;
-
-	uint8_t halt;
-} EVM;
-
-#define MAKE_INST_NOP() 	{ .type = INST_NOP, 	.operand = 0}
-#define MAKE_INST_PUSH(value) 	{ .type = INST_PUSH, 	.operand = (value) }
-#define MAKE_INST_DUP(addr) 	{ .type = INST_DUP, 	.operand = (addr) }
-#define MAKE_INST_PLUS() 	{ .type = INST_PLUS, 	.operand = 0,}
-#define MAKE_INST_MINUS() 	{ .type = INST_MINUS, 	.operand = 0 }
-#define MAKE_INST_MULT() 	{ .type = INST_MULT, 	.operand = 0 }
-#define MAKE_INST_DIV() 	{ .type = INST_DIV, 	.operand = 0 }
-#define MAKE_INST_JMP(addr) 	{ .type = INST_JMP, 	.operand = (addr) }
-#define MAKE_INST_JMP_IF(addr) 	{ .type = INST_JMP_IF, 	.operand = (addr) }
-#define MAKE_INST_EQ() 		{ .type = INST_EQ, 	.operand = 0 }
-#define MAKE_INST_HALT() 	{ .type = INST_HALT, 	.operand = 0 }
 
 Trap evm_execute_inst(EVM *evm) {
 	if(evm->ip < 0 || evm->ip >= evm->program_size) return TRAP_ILLEGAL_INST_ACCESS;
@@ -223,6 +246,18 @@ Trap evm_execute_inst(EVM *evm) {
 	return TRAP_OK;
 }
 
+Trap evm_execute_program(EVM *evm, int limit) {
+	while (limit != 0 && !evm->halt) {
+		Trap trap = evm_execute_inst(evm);
+		if (trap != TRAP_OK) {
+			return trap;
+		}
+
+		if (limit > 0) --limit;
+	}
+
+	return TRAP_OK;
+}
 
 void evm_dump_stack(FILE *stream, const EVM *evm) {
 	fprintf(stream, "Stack:\n");
@@ -283,14 +318,14 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	fclose(f);
 }
 
-void evm_save_program_to_file(Inst *program, size_t program_size, const char *file_path) {
+void evm_save_program_to_file(const EVM *evm, const char *file_path) {
 	FILE *f = fopen(file_path, "wb");
 	if (f == NULL) {
 		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
-	fwrite(program, sizeof(program[0]), program_size, f);
+	fwrite(evm->program, sizeof(evm->program[0]), evm->program_size, f);
 
 	if (ferror(f)) {
 		fprintf(stderr, "Could not write to file %s: %s\n", file_path, strerror(errno));
@@ -299,13 +334,6 @@ void evm_save_program_to_file(Inst *program, size_t program_size, const char *fi
 
 	fclose(f);
 }
-
-EVM Global_evm = {0};
-
-typedef struct {
-	size_t count;
-	const char *data;
-} String_View;
 
 String_View cstr_as_sv(const char *cstr) {
 	return (String_View) {
@@ -383,7 +411,9 @@ Inst evm_transalte_line(String_View line) {
 	line = sv_trim_left(line);
 	String_View inst_name = sv_chop_by_delim(&line, ' ');
 
-	if (sv_eq(inst_name, cstr_as_sv("push"))) {
+	if (sv_eq(inst_name, cstr_as_sv("nop"))) {
+		return (Inst) { .type = INST_NOP, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
 		line = sv_trim_left(line);
 		int operand = sv_to_int(sv_trim_right(line));
 		return (Inst) { .type = INST_PUSH, .operand = operand };
@@ -393,10 +423,26 @@ Inst evm_transalte_line(String_View line) {
 		return (Inst) { .type = INST_DUP, .operand = operand };
 	} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
 		return (Inst) { .type = INST_PLUS, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
+		return (Inst) { .type = INST_MINUS, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("mult"))) {
+		return (Inst) { .type = INST_MULT, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
+		return (Inst) { .type = INST_DIV, .operand = 0 };
 	} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
 		line = sv_trim_left(line);
 		int operand = sv_to_int(sv_trim_right(line));
 		return (Inst) { .type = INST_JMP, .operand = operand };
+	} else if (sv_eq(inst_name, cstr_as_sv("jmpif"))) {
+		line = sv_trim_left(line);
+		int operand = sv_to_int(sv_trim_right(line));
+		return (Inst) { .type = INST_JMP_IF, .operand = operand };
+	} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
+		return (Inst) { .type = INST_EQ, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
+		return (Inst) { .type = INST_PRINT_DEBUG, .operand = 0 };
+	} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
+		return (Inst) { .type = INST_HALT, .operand = 0 };
 	} else {
 		fprintf(stderr, "ERROR: unknown instruction '%.*s' \n", (int)inst_name.count, inst_name.data);
 		exit(1);
@@ -418,7 +464,7 @@ size_t evm_transalte_source(String_View source, Inst *program, size_t program_ca
 	return program_size;
 }
 
-String_View slurp_file(const char *file_path) {
+String_View sv_slurp_file(const char *file_path) {
 	FILE *f = fopen(file_path, "r");
 
 	if (f == NULL) {
@@ -461,3 +507,5 @@ String_View slurp_file(const char *file_path) {
 		.data = buffer,
 	};
 }
+
+#endif //EVM_IMPLEMENTATION

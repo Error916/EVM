@@ -1,4 +1,5 @@
-#include "./evm.c"
+#define EVM_IMPLEMENTATION
+#include "./evm.h"
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
@@ -9,15 +10,19 @@ int main(int argc, char **argv) {
 
 	const char *input_file_path = argv[1];
 
-	evm_load_program_from_file(&Global_evm, input_file_path);
-	for (int i = 0; i < EVM_EXEWCUTION_LIMIT && !Global_evm.halt; ++i) {
-		Trap trap = evm_execute_inst(&Global_evm);
-		if (trap != TRAP_OK) {
-			fprintf(stderr, "Trap activated: %s\n", trap_as_cstr(trap));
-			exit(1);
-		}
+	int limit = -1; // NO LIMIT
+	EVM evm = { 0 };
+
+	limit = 69;
+
+	evm_load_program_from_file(&evm, input_file_path);
+	Trap trap = evm_execute_program(&evm , limit);
+	evm_dump_stack(stdout, &evm);
+
+	if (trap != TRAP_OK) {
+		fprintf(stderr, "Trap activated: %s\n", trap_as_cstr(trap));
+		return 1;
 	}
-	evm_dump_stack(stdout, &Global_evm);
 
 	return 0;
 }
