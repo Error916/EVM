@@ -9,12 +9,13 @@ int main(int argc, char **argv) {
 	}
 
 	EVM evm = { 0 };
+	Label_Table lt = { 0 };
 
 	const char *input_file_path = argv[1];
 	const char *output_file_path = argv[2];
 
 	String_View source = sv_slurp_file(input_file_path);
-	evm.program_size = evm_transalte_source(source, evm.program, EVM_PROGRAM_CAPACITY);
+	evm_transalte_source(source, &evm, &lt);
 	evm_save_program_to_file(&evm, output_file_path);
 
 	return 0;
