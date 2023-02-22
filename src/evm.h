@@ -464,7 +464,6 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
 		if (line.count > 0 && *line.data != ';') {
 			String_View inst_name = sv_chop_by_delim(&line, ' ');
-			String_View operand = sv_chop_by_delim(&line, ';');
 
 			if (inst_name.count > 0 && inst_name.data[inst_name.count - 1] == ':') {
 				String_View label = {
@@ -472,45 +471,53 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 					.data = inst_name.data,
 				};
 				lt_push(lt, label, evm->program_size);
-			} else if (sv_eq(inst_name, cstr_as_sv("nop"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_NOP, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = sv_to_int(operand) });
-			} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = sv_to_int(operand) });
-			} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_PLUS, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_MINUS, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("mult"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_MULT, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_DIV, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
-				Word addr = 0;
-				if (operand.count > 0 && isdigit(*operand.data)) {
-					addr = sv_to_int(operand);
+				line = sv_trim(line);
+				inst_name = sv_chop_by_delim(&line, ' ');
+			}
+
+			if (inst_name.count > 0) {
+				String_View operand = sv_trim(sv_chop_by_delim(&line, ';'));
+
+				if (sv_eq(inst_name, cstr_as_sv("nop"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_NOP, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = sv_to_int(operand) });
+				} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = sv_to_int(operand) });
+				} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PLUS, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MINUS, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("mult"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MULT, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_DIV, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
+					Word addr = 0;
+					if (operand.count > 0 && isdigit(*operand.data)) {
+						addr = sv_to_int(operand);
+					} else {
+						lt_push_unrisolved_jmp(lt, evm->program_size, operand);
+					}
+					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
+				} else if (sv_eq(inst_name, cstr_as_sv("jmp_if"))) {
+					Word addr = 0;
+					if (operand.count > 0 && isdigit(*operand.data)) {
+						addr = sv_to_int(operand);
+					} else {
+						lt_push_unrisolved_jmp(lt, evm->program_size, operand);
+					}
+					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
+				} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_EQ, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG, .operand = 0 });
+				} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
+					evm_push_inst(evm, (Inst) { .type = INST_HALT, .operand = 0 });
 				} else {
-					lt_push_unrisolved_jmp(lt, evm->program_size, operand);
+					fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)inst_name.count, inst_name.data);
+					exit(1);
 				}
-				evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
-			} else if (sv_eq(inst_name, cstr_as_sv("jmp_if"))) {
-				Word addr = 0;
-				if (operand.count > 0 && isdigit(*operand.data)) {
-					addr = sv_to_int(operand);
-				} else {
-					lt_push_unrisolved_jmp(lt, evm->program_size, operand);
-				}
-				evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
-			} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_EQ, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG, .operand = 0 });
-			} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
-				evm_push_inst(evm, (Inst) { .type = INST_HALT, .operand = 0 });
-			} else {
-				fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)inst_name.count, inst_name.data);
-				exit(1);
 			}
 		}
 	}
