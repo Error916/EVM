@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-pedantic -Wall -Wextra -Werror -Wfatal-errors -Wswitch-enum -Ofast -flto -march=native -pipe
+CFLAGS=-pedantic -Wall -Wextra -Werror -Wfatal-errors -Wswitch-enum -Wmissing-prototypes -Ofast -flto -march=native -pipe
 LIBS=
 
 all: easm evmi deasm

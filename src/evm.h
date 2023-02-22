@@ -104,18 +104,18 @@ typedef struct {
 typedef struct {
 	Word addr;
 	String_View label;
-} Unresolved_Jmp;
+} Defered_Operand;
 
 typedef struct {
 	Label labels[LABELS_CAPACITY];
 	size_t labels_size;
-	Unresolved_Jmp unresolved_jmps[UNRESOLVED_JMP_CAPACITY];
-	size_t unresolved_jmps_size;
+	Defered_Operand defered_operands[UNRESOLVED_JMP_CAPACITY];
+	size_t defered_operands_size;
 } Label_Table;
 
-Word lt_find(const Label_Table *lt, String_View name);
+Word lt_find_label_addr(const Label_Table *lt, String_View name);
 void lt_push(Label_Table *lt, String_View name, Word addr);
-void lt_push_unrisolved_jmp(Label_Table *lt, Word addr, String_View name);
+void lt_push_defered_operand(Label_Table *lt, Word addr, String_View name);
 
 void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt);
 
@@ -429,7 +429,7 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
-Word lt_find(const Label_Table *lt, String_View name) {
+Word lt_find_label_addr(const Label_Table *lt, String_View name) {
 	for (size_t i = 0; i < lt->labels_size; ++i) {
 		if (sv_eq(lt->labels[i].name, name)) {
 			return lt->labels[i].addr;
@@ -448,9 +448,9 @@ void lt_push(Label_Table *lt, String_View name, Word addr) {
 	};
 }
 
-void lt_push_unrisolved_jmp(Label_Table *lt, Word addr, String_View label) {
-	assert(lt->unresolved_jmps_size < UNRESOLVED_JMP_CAPACITY);
-	lt->unresolved_jmps[lt->unresolved_jmps_size++] = (Unresolved_Jmp) {
+void lt_push_defered_operand(Label_Table *lt, Word addr, String_View label) {
+	assert(lt->defered_operands_size < UNRESOLVED_JMP_CAPACITY);
+	lt->defered_operands[lt->defered_operands_size++] = (Defered_Operand) {
 		.addr = addr,
 		.label = label,
 	};
@@ -471,6 +471,7 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 					.data = inst_name.data,
 				};
 				lt_push(lt, label, evm->program_size);
+				// We need to time forst so we support multiple spaces
 				line = sv_trim(line);
 				inst_name = sv_chop_by_delim(&line, ' ');
 			}
@@ -497,7 +498,7 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 					if (operand.count > 0 && isdigit(*operand.data)) {
 						addr = sv_to_int(operand);
 					} else {
-						lt_push_unrisolved_jmp(lt, evm->program_size, operand);
+						lt_push_defered_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
 				} else if (sv_eq(inst_name, cstr_as_sv("jmp_if"))) {
@@ -505,7 +506,7 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 					if (operand.count > 0 && isdigit(*operand.data)) {
 						addr = sv_to_int(operand);
 					} else {
-						lt_push_unrisolved_jmp(lt, evm->program_size, operand);
+						lt_push_defered_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
 				} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
@@ -522,9 +523,9 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 		}
 	}
 
-	for (size_t i = 0; i < lt->unresolved_jmps_size; ++i) {
-		Word addr = lt_find(lt, lt->unresolved_jmps[i].label);
-		evm->program[lt->unresolved_jmps[i].addr].operand = addr;
+	for (size_t i = 0; i < lt->defered_operands_size; ++i) {
+		Word addr = lt_find_label_addr(lt, lt->defered_operands[i].label);
+		evm->program[lt->defered_operands[i].addr].operand = addr;
 	}
 }
 
