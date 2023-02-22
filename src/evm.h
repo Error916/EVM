@@ -410,17 +410,14 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 Inst evm_transalte_line(String_View line) {
 	line = sv_trim_left(line);
 	String_View inst_name = sv_chop_by_delim(&line, ' ');
+	String_View operand = sv_chop_by_delim(&line, ';');
 
 	if (sv_eq(inst_name, cstr_as_sv("nop"))) {
 		return (Inst) { .type = INST_NOP, .operand = 0 };
 	} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
-		line = sv_trim_left(line);
-		int operand = sv_to_int(sv_trim_right(line));
-		return (Inst) { .type = INST_PUSH, .operand = operand };
+		return (Inst) { .type = INST_PUSH, .operand = sv_to_int(operand) };
 	} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
-		line = sv_trim_left(line);
-		int operand = sv_to_int(sv_trim_right(line));
-		return (Inst) { .type = INST_DUP, .operand = operand };
+		return (Inst) { .type = INST_DUP, .operand = sv_to_int(operand)};
 	} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
 		return (Inst) { .type = INST_PLUS, .operand = 0 };
 	} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
@@ -430,13 +427,9 @@ Inst evm_transalte_line(String_View line) {
 	} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
 		return (Inst) { .type = INST_DIV, .operand = 0 };
 	} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
-		line = sv_trim_left(line);
-		int operand = sv_to_int(sv_trim_right(line));
-		return (Inst) { .type = INST_JMP, .operand = operand };
+		return (Inst) { .type = INST_JMP, .operand = sv_to_int(operand)};
 	} else if (sv_eq(inst_name, cstr_as_sv("jmpif"))) {
-		line = sv_trim_left(line);
-		int operand = sv_to_int(sv_trim_right(line));
-		return (Inst) { .type = INST_JMP_IF, .operand = operand };
+		return (Inst) { .type = INST_JMP_IF, .operand = sv_to_int(operand)};
 	} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
 		return (Inst) { .type = INST_EQ, .operand = 0 };
 	} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
@@ -444,7 +437,7 @@ Inst evm_transalte_line(String_View line) {
 	} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
 		return (Inst) { .type = INST_HALT, .operand = 0 };
 	} else {
-		fprintf(stderr, "ERROR: unknown instruction '%.*s' \n", (int)inst_name.count, inst_name.data);
+		fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)inst_name.count, inst_name.data);
 		exit(1);
 	}
 
@@ -456,7 +449,7 @@ size_t evm_transalte_source(String_View source, Inst *program, size_t program_ca
 	while (source.count > 0) {
 		assert(program_size < program_capacity);
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
-		if (line.count) {
+		if (line.count > 0 && *line.data != ';') {
 			program[program_size++] = evm_transalte_line(line);
 		}
 	}
