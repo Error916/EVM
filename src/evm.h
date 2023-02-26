@@ -25,9 +25,17 @@
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
 #define LABELS_CAPACITY 1024
-#define UNRESOLVED_JMP_CAPACITY 1024
+#define DEFERRED_OPERANDS_CAPACITY 1024
 
-typedef int64_t Word;
+typedef uint64_t Inst_Addr;
+
+typedef union {
+	uint64_t as_u64;
+	int64_t as_i64;
+	double as_f64;
+	void *as_ptr;
+} Word;
+static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
 
 typedef enum {
 	TRAP_OK = 0,
@@ -65,11 +73,11 @@ const char *inst_type_as_cstr(Inst_Type type);
 
 typedef struct {
 	Word stack[EVM_STACK_CAPACITY];
-	Word stack_size;
+	uint64_t stack_size;
 
 	Inst program[EVM_PROGRAM_CAPACITY];
-	Word program_size;
-	Word ip;
+	uint64_t program_size;
+	Inst_Addr ip;
 
 	uint8_t halt;
 } EVM;
@@ -98,24 +106,24 @@ String_View sv_slurp_file(const char *file_path);
 
 typedef struct {
 	String_View name;
-	Word addr;
+	Inst_Addr addr;
 } Label;
 
 typedef struct {
-	Word addr;
+	Inst_Addr addr;
 	String_View label;
-} Defered_Operand;
+} Deferred_Operand;
 
 typedef struct {
 	Label labels[LABELS_CAPACITY];
 	size_t labels_size;
-	Defered_Operand defered_operands[UNRESOLVED_JMP_CAPACITY];
-	size_t defered_operands_size;
+	Deferred_Operand deferred_operands[DEFERRED_OPERANDS_CAPACITY];
+	size_t deferred_operands_size;
 } Label_Table;
 
-Word lt_find_label_addr(const Label_Table *lt, String_View name);
-void lt_push(Label_Table *lt, String_View name, Word addr);
-void lt_push_defered_operand(Label_Table *lt, Word addr, String_View name);
+Inst_Addr lt_find_label_addr(const Label_Table *lt, String_View name);
+void lt_push(Label_Table *lt, String_View name, Inst_Addr addr);
+void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
 
 void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt);
 
@@ -176,7 +184,7 @@ const char *inst_type_as_cstr(Inst_Type type) {
 }
 
 Trap evm_execute_inst(EVM *evm) {
-	if(evm->ip < 0 || evm->ip >= evm->program_size) return TRAP_ILLEGAL_INST_ACCESS;
+	if(evm->ip >= evm->program_size) return TRAP_ILLEGAL_INST_ACCESS;
 
 	Inst inst = evm->program[evm->ip];
 
@@ -193,51 +201,50 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_DUP:
 			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
-			if (evm->stack_size - inst.operand <= 0) return TRAP_STACK_UNDERFLOW;
-			if (inst.operand < 0) return TRAP_ILLEGAL_OPERAND;
-			evm->stack[evm->stack_size] = evm->stack[evm->stack_size - 1 - inst.operand];
+			if (evm->stack_size - inst.operand.as_u64 <= 0) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size] = evm->stack[evm->stack_size - 1 - inst.operand.as_u64];
 			evm->stack_size += 1;
 			evm->ip += 1;
 		break;
 
 		case INST_PLUS:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2] += evm->stack[evm->stack_size - 1];
+			evm->stack[evm->stack_size - 2].as_u64 += evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
 		case INST_MINUS:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2] -= evm->stack[evm->stack_size - 1];
+			evm->stack[evm->stack_size - 2].as_u64 -= evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
 		case INST_MULT:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2] *= evm->stack[evm->stack_size - 1];
+			evm->stack[evm->stack_size - 2].as_u64 *= evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
 		case INST_DIV:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			if (evm->stack[evm->stack_size - 1] == 0) return TRAP_DIV_BY_ZERO;
-			evm->stack[evm->stack_size - 2] /= evm->stack[evm->stack_size - 1];
+			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
+			evm->stack[evm->stack_size - 2].as_u64 /= evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
 		case INST_JMP:
-			evm->ip = inst.operand;
+			evm->ip = inst.operand.as_u64;
 		break;
 
 		case INST_JMP_IF:
 			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
-			if (evm->stack[evm->stack_size - 1]) {
+			if (evm->stack[evm->stack_size - 1].as_u64) {
 				evm->stack_size -= 1;
-				evm->ip = inst.operand;
+				evm->ip = inst.operand.as_u64;
 			} else {
 				evm->ip += 1;
 			}
@@ -245,7 +252,7 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_EQ:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2] = (evm->stack[evm->stack_size - 1] == evm->stack[evm->stack_size - 2]);
+			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 == evm->stack[evm->stack_size - 2].as_u64);
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -256,7 +263,7 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_PRINT_DEBUG:
 			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
-			printf("%ld\n", evm->stack[evm->stack_size - 1]);
+			printf("%lu\n", evm->stack[evm->stack_size - 1].as_u64);
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -284,8 +291,12 @@ Trap evm_execute_program(EVM *evm, int limit) {
 void evm_dump_stack(FILE *stream, const EVM *evm) {
 	fprintf(stream, "Stack:\n");
 	if(evm->stack_size  > 0) {
-		for (Word i = 0; i < evm->stack_size; ++i) {
-			fprintf(stream, "\t%ld\n", evm->stack[i]);
+		for (Inst_Addr i = 0; i < evm->stack_size; ++i) {
+			fprintf(stream, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+                    		evm->stack[i].as_u64,
+                    		evm->stack[i].as_i64,
+                    		evm->stack[i].as_f64,
+                    		evm->stack[i].as_ptr);
 		}
 	} else {
 		fprintf(stream, "\t[empty]\n");
@@ -429,7 +440,7 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
-Word lt_find_label_addr(const Label_Table *lt, String_View name) {
+Inst_Addr lt_find_label_addr(const Label_Table *lt, String_View name) {
 	for (size_t i = 0; i < lt->labels_size; ++i) {
 		if (sv_eq(lt->labels[i].name, name)) {
 			return lt->labels[i].addr;
@@ -440,7 +451,7 @@ Word lt_find_label_addr(const Label_Table *lt, String_View name) {
 	exit(1);
 }
 
-void lt_push(Label_Table *lt, String_View name, Word addr) {
+void lt_push(Label_Table *lt, String_View name, Inst_Addr addr) {
 	assert(lt->labels_size < LABELS_CAPACITY);
 	lt->labels[lt->labels_size++] = (Label) {
 		.name = name,
@@ -448,9 +459,9 @@ void lt_push(Label_Table *lt, String_View name, Word addr) {
 	};
 }
 
-void lt_push_defered_operand(Label_Table *lt, Word addr, String_View label) {
-	assert(lt->defered_operands_size < UNRESOLVED_JMP_CAPACITY);
-	lt->defered_operands[lt->defered_operands_size++] = (Defered_Operand) {
+void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label) {
+	assert(lt->deferred_operands_size < DEFERRED_OPERANDS_CAPACITY);
+	lt->deferred_operands[lt->deferred_operands_size++] = (Deferred_Operand) {
 		.addr = addr,
 		.label = label,
 	};
@@ -480,41 +491,41 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 				String_View operand = sv_trim(sv_chop_by_delim(&line, ';'));
 
 				if (sv_eq(inst_name, cstr_as_sv("nop"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_NOP, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_NOP });
 				} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = sv_to_int(operand) });
+					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = { .as_i64 = sv_to_int(operand) } });
 				} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = sv_to_int(operand) });
+					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = { .as_i64 = sv_to_int(operand) } });
 				} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PLUS, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_PLUS });
 				} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_MINUS, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_MINUS });
 				} else if (sv_eq(inst_name, cstr_as_sv("mult"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_MULT, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_MULT });
 				} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_DIV, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_DIV });
 				} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
-					Word addr = 0;
+					Word addr = { .as_i64 = 0 };
 					if (operand.count > 0 && isdigit(*operand.data)) {
-						addr = sv_to_int(operand);
+						addr = (Word) { .as_i64 = sv_to_int(operand) };
 					} else {
-						lt_push_defered_operand(lt, evm->program_size, operand);
+						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
 				} else if (sv_eq(inst_name, cstr_as_sv("jmp_if"))) {
-					Word addr = 0;
+					Word addr = { .as_i64 = 0 };
 					if (operand.count > 0 && isdigit(*operand.data)) {
-						addr = sv_to_int(operand);
+						addr = (Word) { .as_i64 = sv_to_int(operand) };
 					} else {
-						lt_push_defered_operand(lt, evm->program_size, operand);
+						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
 				} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_EQ, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_EQ });
 				} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG });
 				} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_HALT, .operand = 0 });
+					evm_push_inst(evm, (Inst) { .type = INST_HALT });
 				} else {
 					fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)inst_name.count, inst_name.data);
 					exit(1);
@@ -523,9 +534,9 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 		}
 	}
 
-	for (size_t i = 0; i < lt->defered_operands_size; ++i) {
-		Word addr = lt_find_label_addr(lt, lt->defered_operands[i].label);
-		evm->program[lt->defered_operands[i].addr].operand = addr;
+	for (size_t i = 0; i < lt->deferred_operands_size; ++i) {
+		Inst_Addr addr = lt_find_label_addr(lt, lt->deferred_operands[i].label);
+		evm->program[lt->deferred_operands[i].addr].operand.as_u64 = addr;
 	}
 }
 
