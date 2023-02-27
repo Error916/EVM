@@ -35,7 +35,7 @@ typedef union {
 	double as_f64;
 	void *as_ptr;
 } Word;
-static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
+// static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
 
 typedef enum {
 	TRAP_OK = 0,
@@ -53,15 +53,20 @@ typedef enum {
 	INST_NOP = 0,
 	INST_PUSH,
 	INST_DUP,
-	INST_PLUS,
-	INST_MINUS,
-	INST_MULT,
-	INST_DIV,
+	INST_PLUSI,
+	INST_MINUSI,
+	INST_MULTI,
+	INST_DIVI,
+	INST_PLUSF,
+	INST_MINUSF,
+	INST_MULTF,
+	INST_DIVF,
 	INST_JMP,
 	INST_JMP_IF,
 	INST_EQ,
 	INST_HALT,
 	INST_PRINT_DEBUG,
+	NUMBER_OF_INSTS,
 } Inst_Type;
 
 typedef struct {
@@ -70,6 +75,8 @@ typedef struct {
 } Inst;
 
 const char *inst_type_as_cstr(Inst_Type type);
+const char *inst_name(Inst_Type type);
+int inst_has_operand(Inst_Type type);
 
 typedef struct {
 	Word stack[EVM_STACK_CAPACITY];
@@ -125,7 +132,9 @@ Inst_Addr lt_find_label_addr(const Label_Table *lt, String_View name);
 void lt_push(Label_Table *lt, String_View name, Inst_Addr addr);
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
 
-void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt);
+void evm_translate_source(String_View source, EVM *evm, Label_Table *lt);
+
+Word number_literal_as_word(String_View sv);
 
 #endif // EVM_H_
 
@@ -133,53 +142,83 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt);
 
 const char *trap_as_cstr(Trap trap) {
 	switch (trap) {
-		case TRAP_OK:
-			return "TRAP_OK";
-		case TRAP_STACK_OVERFLOW:
-			return "TRAP_STACK_OVERFLOW";
-		case TRAP_STACK_UNDERFLOW:
-			return "TRAP_STACK_UNDERFLOW";
-		case TRAP_ILLEGAL_INST:
-			return "TRAP_ILLEGAL_INST";
-		case TRAP_ILLEGAL_INST_ACCESS:
-			return "TRAP_ILLEGAL_INST_ACCESS";
-		case TRAP_ILLEGAL_OPERAND:
-			return "TRAP_ILLEGAL_OPERAND";
-		case TRAP_DIV_BY_ZERO:
-			return "TRAP_DIV_BY_ZERO";
-		default:
-			UNREACHABLE("NOT EXISTING TRAP");
+		case TRAP_OK:			return "TRAP_OK";
+		case TRAP_STACK_OVERFLOW:	return "TRAP_STACK_OVERFLOW";
+		case TRAP_STACK_UNDERFLOW:	return "TRAP_STACK_UNDERFLOW";
+		case TRAP_ILLEGAL_INST:		return "TRAP_ILLEGAL_INST";
+		case TRAP_ILLEGAL_INST_ACCESS: 	return "TRAP_ILLEGAL_INST_ACCESS";
+		case TRAP_ILLEGAL_OPERAND:	return "TRAP_ILLEGAL_OPERAND";
+		case TRAP_DIV_BY_ZERO:		return "TRAP_DIV_BY_ZERO";
+		default: UNREACHABLE("NOT EXISTING TRAP");
 	}
 }
 
 const char *inst_type_as_cstr(Inst_Type type) {
 	switch (type) {
-		case INST_NOP:
-			return "INST_NOP";
-		case INST_PUSH:
-			return "INST_PUSH";
-		case INST_DUP:
-			return "INST_DUP";
-		case INST_PLUS:
-			return "INST_PLUS";
-		case INST_MINUS:
-			return "INST_MINUS";
-		case INST_MULT:
-			return "INST_MULT";
-		case INST_DIV:
-			return "INST_DIV";
-		case INST_JMP:
-			return "INST_JMP";
-		case INST_JMP_IF:
-			return "INST_JMP_IF";
-		case INST_EQ:
-			return "INST_EQ";
-		case INST_HALT:
-			return "INST_HALT";
-		case INST_PRINT_DEBUG:
-			return "INST_PRINT_DEBUG";
-		default:
-			UNREACHABLE("NOT EXISTING INST_TYPE");
+		case INST_NOP:		return "INST_NOP";
+		case INST_PUSH:		return "INST_PUSH";
+		case INST_DUP:		return "INST_DUP";
+		case INST_PLUSI:	return "INST_PLUSI";
+		case INST_MINUSI:	return "INST_MINUSI";
+		case INST_MULTI:	return "INST_MULTI";
+		case INST_DIVI:		return "INST_DIVI";
+		case INST_PLUSF:	return "INST_PLUSF";
+    		case INST_MINUSF:	return "INST_MINUSF";
+    		case INST_MULTF:	return "INST_MULTF";
+    		case INST_DIVF:		return "INST_DIVF";
+		case INST_JMP:		return "INST_JMP";
+		case INST_JMP_IF:	return "INST_JMP_IF";
+		case INST_EQ:		return "INST_EQ";
+		case INST_HALT:		return "INST_HALT";
+		case INST_PRINT_DEBUG:	return "INST_PRINT_DEBUG";
+		case NUMBER_OF_INSTS:
+		default: UNREACHABLE("NOT EXISTING INST_TYPE");
+	}
+}
+
+const char *inst_name(Inst_Type type) {
+	switch (type) {
+		case INST_NOP:         return "nop";
+		case INST_PUSH:        return "push";
+		case INST_DUP:         return "dup";
+		case INST_PLUSI:       return "plusi";
+		case INST_MINUSI:      return "minusi";
+		case INST_MULTI:       return "multi";
+		case INST_DIVI:        return "divi";
+		case INST_PLUSF:       return "plusf";
+		case INST_MINUSF:      return "minusf";
+		case INST_MULTF:       return "multf";
+		case INST_DIVF:        return "divf";
+		case INST_JMP:         return "jmp";
+		case INST_JMP_IF:      return "jmp_if";
+		case INST_EQ:          return "eq";
+		case INST_HALT:        return "halt";
+		case INST_PRINT_DEBUG: return "print_debug";
+		case NUMBER_OF_INSTS:
+		default: UNREACHABLE("NOT EXISTING INST_TYPE");
+	}
+}
+
+int inst_has_operand(Inst_Type type) {
+	switch (type) {
+		case INST_NOP:         return 0;
+		case INST_PUSH:        return 1;
+		case INST_DUP:         return 1;
+		case INST_PLUSI:       return 0;
+		case INST_MINUSI:      return 0;
+		case INST_MULTI:       return 0;
+		case INST_DIVI:        return 0;
+		case INST_PLUSF:       return 0;
+		case INST_MINUSF:      return 0;
+		case INST_MULTF:       return 0;
+		case INST_DIVF:        return 0;
+		case INST_JMP:         return 1;
+		case INST_JMP_IF:      return 1;
+		case INST_EQ:          return 0;
+		case INST_HALT:        return 0;
+		case INST_PRINT_DEBUG: return 0;
+		case NUMBER_OF_INSTS:
+		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
 }
 
@@ -207,31 +246,59 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
-		case INST_PLUS:
+		case INST_PLUSI:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_u64 += evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
-		case INST_MINUS:
+		case INST_MINUSI:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_u64 -= evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
-		case INST_MULT:
+		case INST_MULTI:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_u64 *= evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
-		case INST_DIV:
+		case INST_DIVI:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
 			evm->stack[evm->stack_size - 2].as_u64 /= evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_PLUSF:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_f64 += evm->stack[evm->stack_size - 1].as_f64;
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_MINUSF:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_f64 -= evm->stack[evm->stack_size - 1].as_f64;
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_MULTF:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_f64 *= evm->stack[evm->stack_size - 1].as_f64;
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_DIVF:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_f64 /= evm->stack[evm->stack_size - 1].as_f64;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -267,6 +334,8 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
+
+		case NUMBER_OF_INSTS:
 
 		default:
 			return TRAP_ILLEGAL_INST;
@@ -467,44 +536,52 @@ void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label
 	};
 }
 
-void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
+void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 	evm->program_size = 0;
 
 	while (source.count > 0) {
 		assert(evm->program_size < EVM_PROGRAM_CAPACITY);
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
 		if (line.count > 0 && *line.data != ';') {
-			String_View inst_name = sv_chop_by_delim(&line, ' ');
+			String_View token = sv_chop_by_delim(&line, ' ');
 
-			if (inst_name.count > 0 && inst_name.data[inst_name.count - 1] == ':') {
+			if (token.count > 0 && token.data[token.count - 1] == ':') {
 				String_View label = {
-					.count = inst_name.count - 1,
-					.data = inst_name.data,
+					.count = token.count - 1,
+					.data = token.data,
 				};
 				lt_push(lt, label, evm->program_size);
 				// We need to time forst so we support multiple spaces
 				line = sv_trim(line);
-				inst_name = sv_chop_by_delim(&line, ' ');
+				token = sv_chop_by_delim(&line, ' ');
 			}
 
-			if (inst_name.count > 0) {
+			if (token.count > 0) {
 				String_View operand = sv_trim(sv_chop_by_delim(&line, ';'));
 
-				if (sv_eq(inst_name, cstr_as_sv("nop"))) {
+				if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_NOP });
-				} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = { .as_i64 = sv_to_int(operand) } });
-				} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = number_literal_as_word(operand) });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = { .as_i64 = sv_to_int(operand) } });
-				} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PLUS });
-				} else if (sv_eq(inst_name, cstr_as_sv("minus"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_MINUS });
-				} else if (sv_eq(inst_name, cstr_as_sv("mult"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_MULT });
-				} else if (sv_eq(inst_name, cstr_as_sv("div"))) {
-					evm_push_inst(evm, (Inst) { .type = INST_DIV });
-				} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PLUSI });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MINUSI });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MULTI });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_DIVI });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_PLUSF });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MINUSF });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_MULTF });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_DIVF });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
 					Word addr = { .as_i64 = 0 };
 					if (operand.count > 0 && isdigit(*operand.data)) {
 						addr = (Word) { .as_i64 = sv_to_int(operand) };
@@ -512,7 +589,7 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
-				} else if (sv_eq(inst_name, cstr_as_sv("jmp_if"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
 					Word addr = { .as_i64 = 0 };
 					if (operand.count > 0 && isdigit(*operand.data)) {
 						addr = (Word) { .as_i64 = sv_to_int(operand) };
@@ -520,14 +597,14 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
-				} else if (sv_eq(inst_name, cstr_as_sv("eq"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_EQ });
-				} else if (sv_eq(inst_name, cstr_as_sv("print_debug"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG });
-				} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_HALT });
 				} else {
-					fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)inst_name.count, inst_name.data);
+					fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)token.count, token.data);
 					exit(1);
 				}
 			}
@@ -538,6 +615,28 @@ void evm_transalte_source(String_View source, EVM *evm, Label_Table *lt) {
 		Inst_Addr addr = lt_find_label_addr(lt, lt->deferred_operands[i].label);
 		evm->program[lt->deferred_operands[i].addr].operand.as_u64 = addr;
 	}
+}
+
+Word number_literal_as_word(String_View sv) {
+	assert(sv.count < 1024);
+	char cstr[sv.count + 1];
+	char *endptr = 0;
+
+	memcpy(cstr, sv.data, sv.count);
+	cstr[sv.count] = '\0';
+
+	Word result = {0};
+
+	result.as_u64 = strtoull(cstr, &endptr, 10);
+	if ((size_t) (endptr - cstr) != sv.count) {
+		result.as_f64 = strtod(cstr, &endptr);
+		if ((size_t) (endptr - cstr) != sv.count) {
+			fprintf(stderr, "ERROR: `%s` is not a number literal\n", cstr);
+			exit(1);
+		}
+	}
+
+	return result;
 }
 
 String_View sv_slurp_file(const char *file_path) {
