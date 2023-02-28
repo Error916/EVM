@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
 	int limit = -1; // NO LIMIT
 	EVM evm = { 0 };
 
-	limit = 69;
+	// limit = 1024;
 
 	evm_load_program_from_file(&evm, input_file_path);
 	Trap trap = evm_execute_program(&evm , limit);

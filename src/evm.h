@@ -35,7 +35,7 @@ typedef union {
 	double as_f64;
 	void *as_ptr;
 } Word;
-// static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
+static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
 
 typedef enum {
 	TRAP_OK = 0,
@@ -53,6 +53,7 @@ typedef enum {
 	INST_NOP = 0,
 	INST_PUSH,
 	INST_DUP,
+	INST_SWAP,
 	INST_PLUSI,
 	INST_MINUSI,
 	INST_MULTI,
@@ -65,6 +66,8 @@ typedef enum {
 	INST_JMP_IF,
 	INST_EQ,
 	INST_HALT,
+	INST_NOT,
+    	INST_GEF,
 	INST_PRINT_DEBUG,
 	NUMBER_OF_INSTS,
 } Inst_Type;
@@ -158,6 +161,7 @@ const char *inst_type_as_cstr(Inst_Type type) {
 		case INST_NOP:		return "INST_NOP";
 		case INST_PUSH:		return "INST_PUSH";
 		case INST_DUP:		return "INST_DUP";
+		case INST_SWAP:		return "INST_SWAP";
 		case INST_PLUSI:	return "INST_PLUSI";
 		case INST_MINUSI:	return "INST_MINUSI";
 		case INST_MULTI:	return "INST_MULTI";
@@ -169,6 +173,8 @@ const char *inst_type_as_cstr(Inst_Type type) {
 		case INST_JMP:		return "INST_JMP";
 		case INST_JMP_IF:	return "INST_JMP_IF";
 		case INST_EQ:		return "INST_EQ";
+		case INST_NOT:		return "INST_NOT";
+		case INST_GEF:		return "INST_GEF";
 		case INST_HALT:		return "INST_HALT";
 		case INST_PRINT_DEBUG:	return "INST_PRINT_DEBUG";
 		case NUMBER_OF_INSTS:
@@ -178,22 +184,25 @@ const char *inst_type_as_cstr(Inst_Type type) {
 
 const char *inst_name(Inst_Type type) {
 	switch (type) {
-		case INST_NOP:         return "nop";
-		case INST_PUSH:        return "push";
-		case INST_DUP:         return "dup";
-		case INST_PLUSI:       return "plusi";
-		case INST_MINUSI:      return "minusi";
-		case INST_MULTI:       return "multi";
-		case INST_DIVI:        return "divi";
-		case INST_PLUSF:       return "plusf";
-		case INST_MINUSF:      return "minusf";
-		case INST_MULTF:       return "multf";
-		case INST_DIVF:        return "divf";
-		case INST_JMP:         return "jmp";
-		case INST_JMP_IF:      return "jmp_if";
-		case INST_EQ:          return "eq";
-		case INST_HALT:        return "halt";
-		case INST_PRINT_DEBUG: return "print_debug";
+		case INST_NOP:         	return "nop";
+		case INST_PUSH:        	return "push";
+		case INST_DUP:         	return "dup";
+		case INST_SWAP:		return "swap";
+		case INST_PLUSI:       	return "plusi";
+		case INST_MINUSI:      	return "minusi";
+		case INST_MULTI:       	return "multi";
+		case INST_DIVI:        	return "divi";
+		case INST_PLUSF:       	return "plusf";
+		case INST_MINUSF:      	return "minusf";
+		case INST_MULTF:       	return "multf";
+		case INST_DIVF:        	return "divf";
+		case INST_JMP:         	return "jmp";
+		case INST_JMP_IF:      	return "jmp_if";
+		case INST_EQ:          	return "eq";
+		case INST_NOT:		return "not";
+		case INST_GEF:		return "gef";
+		case INST_HALT:        	return "halt";
+		case INST_PRINT_DEBUG: 	return "print_debug";
 		case NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -201,22 +210,25 @@ const char *inst_name(Inst_Type type) {
 
 int inst_has_operand(Inst_Type type) {
 	switch (type) {
-		case INST_NOP:         return 0;
-		case INST_PUSH:        return 1;
-		case INST_DUP:         return 1;
-		case INST_PLUSI:       return 0;
-		case INST_MINUSI:      return 0;
-		case INST_MULTI:       return 0;
-		case INST_DIVI:        return 0;
-		case INST_PLUSF:       return 0;
-		case INST_MINUSF:      return 0;
-		case INST_MULTF:       return 0;
-		case INST_DIVF:        return 0;
-		case INST_JMP:         return 1;
-		case INST_JMP_IF:      return 1;
-		case INST_EQ:          return 0;
-		case INST_HALT:        return 0;
-		case INST_PRINT_DEBUG: return 0;
+		case INST_NOP:         	return 0;
+		case INST_PUSH:        	return 1;
+		case INST_DUP:         	return 1;
+		case INST_SWAP:		return 1;
+		case INST_PLUSI:       	return 0;
+		case INST_MINUSI:      	return 0;
+		case INST_MULTI:       	return 0;
+		case INST_DIVI:        	return 0;
+		case INST_PLUSF:       	return 0;
+		case INST_MINUSF:      	return 0;
+		case INST_MULTF:       	return 0;
+		case INST_DIVF:        	return 0;
+		case INST_JMP:         	return 1;
+		case INST_JMP_IF:      	return 1;
+		case INST_EQ:          	return 0;
+		case INST_NOT:		return 0;
+		case INST_GEF:		return 0;
+		case INST_HALT:        	return 0;
+		case INST_PRINT_DEBUG: 	return 0;
 		case NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -310,16 +322,29 @@ Trap evm_execute_inst(EVM *evm) {
 		case INST_JMP_IF:
 			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
 			if (evm->stack[evm->stack_size - 1].as_u64) {
-				evm->stack_size -= 1;
 				evm->ip = inst.operand.as_u64;
 			} else {
 				evm->ip += 1;
 			}
+			evm->stack_size -= 1;
+		break;
+
+		case INST_NOT:
+			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 1].as_u64 = !evm->stack[evm->stack_size - 1].as_u64;
+			evm->ip += 1;
 		break;
 
 		case INST_EQ:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 == evm->stack[evm->stack_size - 2].as_u64);
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_GEF:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 >= evm->stack[evm->stack_size - 2].as_u64);
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -330,8 +355,22 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_PRINT_DEBUG:
 			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
-			printf("%lu\n", evm->stack[evm->stack_size - 1].as_u64);
+			fprintf(stdout, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+                    		evm->stack[evm->stack_size - 1].as_u64,
+                    		evm->stack[evm->stack_size - 1].as_i64,
+                    		evm->stack[evm->stack_size - 1].as_f64,
+                    		evm->stack[evm->stack_size - 1].as_ptr);
 			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_SWAP:
+			if (inst.operand.as_u64 >= evm->stack_size) return TRAP_STACK_UNDERFLOW;
+			const uint64_t a = evm->stack_size - 1;
+			const uint64_t b = evm->stack_size - 1 - inst.operand.as_u64;
+			Word t = evm->stack[a];
+			evm->stack[a] = evm->stack[b];
+			evm->stack[b] = t;
 			evm->ip += 1;
 		break;
 
@@ -565,6 +604,8 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = number_literal_as_word(operand) });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = { .as_i64 = sv_to_int(operand) } });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_SWAP, .operand = { .as_i64 = sv_to_int(operand) } });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_PLUSI });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
@@ -596,9 +637,13 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 					} else {
 						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
-					evm_push_inst(evm, (Inst) { .type = INST_JMP, .operand = addr });
+					evm_push_inst(evm, (Inst) { .type = INST_JMP_IF, .operand = addr });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_EQ });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_GEF });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_NOT });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
