@@ -26,6 +26,7 @@
 #define EVM_PROGRAM_CAPACITY 1024
 #define LABELS_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
+#define NUMBER_LITERAL_CAPACITY 1024
 
 typedef uint64_t Inst_Addr;
 
@@ -52,6 +53,7 @@ const char *trap_as_cstr(Trap trap);
 typedef enum {
 	INST_NOP = 0,
 	INST_PUSH,
+	INST_DROP,
 	INST_DUP,
 	INST_SWAP,
 	INST_PLUSI,
@@ -160,6 +162,7 @@ const char *inst_type_as_cstr(Inst_Type type) {
 	switch (type) {
 		case INST_NOP:		return "INST_NOP";
 		case INST_PUSH:		return "INST_PUSH";
+		case INST_DROP:		return "INST_DROP";
 		case INST_DUP:		return "INST_DUP";
 		case INST_SWAP:		return "INST_SWAP";
 		case INST_PLUSI:	return "INST_PLUSI";
@@ -186,6 +189,7 @@ const char *inst_name(Inst_Type type) {
 	switch (type) {
 		case INST_NOP:         	return "nop";
 		case INST_PUSH:        	return "push";
+		case INST_DROP:		return "drop";
 		case INST_DUP:         	return "dup";
 		case INST_SWAP:		return "swap";
 		case INST_PLUSI:       	return "plusi";
@@ -212,6 +216,7 @@ int inst_has_operand(Inst_Type type) {
 	switch (type) {
 		case INST_NOP:         	return 0;
 		case INST_PUSH:        	return 1;
+		case INST_DROP:		return 0;
 		case INST_DUP:         	return 1;
 		case INST_SWAP:		return 1;
 		case INST_PLUSI:       	return 0;
@@ -247,6 +252,12 @@ Trap evm_execute_inst(EVM *evm) {
 		case INST_PUSH:
 			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
 			evm->stack[evm->stack_size++] = inst.operand;
+			evm->ip += 1;
+		break;
+
+		case INST_DROP:
+			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
+			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
@@ -577,10 +588,12 @@ void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label
 
 void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 	evm->program_size = 0;
+	size_t line_number = 0;
 
 	while (source.count > 0) {
 		assert(evm->program_size < EVM_PROGRAM_CAPACITY);
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
+		line_number += 1;
 		if (line.count > 0 && *line.data != ';') {
 			String_View token = sv_chop_by_delim(&line, ' ');
 
@@ -602,6 +615,8 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 					evm_push_inst(evm, (Inst) { .type = INST_NOP });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_PUSH, .operand = number_literal_as_word(operand) });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_DROP });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_DUP, .operand = { .as_i64 = sv_to_int(operand) } });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
@@ -649,7 +664,7 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_HALT });
 				} else {
-					fprintf(stderr, "ERROR: unknown instruction '%.*s'\n", (int)token.count, token.data);
+					fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
 					exit(1);
 				}
 			}
@@ -663,8 +678,8 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 }
 
 Word number_literal_as_word(String_View sv) {
-	assert(sv.count < 1024);
-	char cstr[sv.count + 1];
+	assert(sv.count < NUMBER_LITERAL_CAPACITY);
+	char cstr[NUMBER_LITERAL_CAPACITY];
 	char *endptr = 0;
 
 	memcpy(cstr, sv.data, sv.count);
