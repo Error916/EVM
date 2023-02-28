@@ -66,6 +66,8 @@ typedef enum {
 	INST_DIVF,
 	INST_JMP,
 	INST_JMP_IF,
+	INST_RET,
+	INST_CALL,
 	INST_EQ,
 	INST_HALT,
 	INST_NOT,
@@ -175,6 +177,8 @@ const char *inst_type_as_cstr(Inst_Type type) {
     		case INST_DIVF:		return "INST_DIVF";
 		case INST_JMP:		return "INST_JMP";
 		case INST_JMP_IF:	return "INST_JMP_IF";
+		case INST_RET:		return "INST_RET";
+		case INST_CALL:		return "INST_CALL";
 		case INST_EQ:		return "INST_EQ";
 		case INST_NOT:		return "INST_NOT";
 		case INST_GEF:		return "INST_GEF";
@@ -202,6 +206,8 @@ const char *inst_name(Inst_Type type) {
 		case INST_DIVF:        	return "divf";
 		case INST_JMP:         	return "jmp";
 		case INST_JMP_IF:      	return "jmp_if";
+		case INST_RET:		return "ret";
+		case INST_CALL:		return "call";
 		case INST_EQ:          	return "eq";
 		case INST_NOT:		return "not";
 		case INST_GEF:		return "gef";
@@ -229,6 +235,8 @@ int inst_has_operand(Inst_Type type) {
 		case INST_DIVF:        	return 0;
 		case INST_JMP:         	return 1;
 		case INST_JMP_IF:      	return 1;
+		case INST_RET:		return 0;
+		case INST_CALL:		return 1;
 		case INST_EQ:          	return 0;
 		case INST_NOT:		return 0;
 		case INST_GEF:		return 0;
@@ -338,6 +346,18 @@ Trap evm_execute_inst(EVM *evm) {
 				evm->ip += 1;
 			}
 			evm->stack_size -= 1;
+		break;
+
+		case INST_RET:
+			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			evm->ip = evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 1;
+		break;
+
+		case INST_CALL:
+			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
+			evm->stack[evm->stack_size++].as_u64 = evm->ip + 1;
+			evm->ip = inst.operand.as_u64;
 		break;
 
 		case INST_NOT:
@@ -653,6 +673,16 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						lt_push_deferred_operand(lt, evm->program_size, operand);
 					}
 					evm_push_inst(evm, (Inst) { .type = INST_JMP_IF, .operand = addr });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
+					Word addr = { .as_i64 = 0 };
+					if (operand.count > 0 && isdigit(*operand.data)) {
+						addr = (Word) { .as_i64 = sv_to_int(operand) };
+					} else {
+						lt_push_deferred_operand(lt, evm->program_size, operand);
+					}
+					evm_push_inst(evm, (Inst) { .type = INST_CALL, .operand = addr });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_RET });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_EQ });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {

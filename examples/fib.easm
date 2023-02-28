@@ -1,8 +1,14 @@
 ; First two Fibonacci numbers
-	push 0
-	push 1
+push 0
+push 1
 loop:
 	dup 1
 	dup 1
 	plusi
-	jmp loop
+
+	dup 1
+	push 1000
+	gef
+	jmp_if loop
+
+halt
