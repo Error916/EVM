@@ -431,13 +431,13 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	}
 
 	if (fseek(f, 0, SEEK_END) < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not set position at end of file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
 	long m = ftell(f);
 	if (m < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not determinate length of file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
@@ -445,14 +445,14 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	assert((size_t)m <= EVM_PROGRAM_CAPACITY * sizeof(evm->program[0]));
 
 	if (fseek(f, 0, SEEK_SET) < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not rewind file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
 	evm->program_size = fread(evm->program, sizeof(evm->program[0]), m / sizeof(evm->program[0]), f);
 
 	if (ferror(f)) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not consume file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
