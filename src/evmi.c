@@ -18,6 +18,15 @@ static Trap evm_free(EVM *evm) {
 	return TRAP_OK;
 }
 
+static Trap evm_print_f64(EVM *evm) {
+	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+
+	printf("%lf\n", evm->stack[evm->stack_size - 1].as_f64);
+	evm->stack_size -= 1;
+
+	return TRAP_OK;
+}
+
 int main(int argc, char **argv) {
 	if (argc < 2) {
 		fprintf(stderr, "Usage: ./evmi <input.evm>\n");
@@ -34,11 +43,12 @@ int main(int argc, char **argv) {
 
 	evm_load_program_from_file(&evm, input_file_path);
 
-	evm_push_native(&evm, evm_alloc);
-	evm_push_native(&evm, evm_free);
+	// TODO: mechanism to load native function more granuraly
+	evm_push_native(&evm, evm_alloc);	// 0
+	evm_push_native(&evm, evm_free);	// 1
+	evm_push_native(&evm, evm_print_f64);	// 2
 
 	Trap trap = evm_execute_program(&evm , limit);
-	evm_dump_stack(stdout, &evm);
 
 	if (trap != TRAP_OK) {
 		fprintf(stderr, "Trap activated: %s\n", trap_as_cstr(trap));
