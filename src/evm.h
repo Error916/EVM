@@ -24,6 +24,7 @@
 
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
+#define EVM_NATIVES_CAPACITY 1024
 #define LABELS_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
@@ -68,6 +69,7 @@ typedef enum {
 	INST_JMP_IF,
 	INST_RET,
 	INST_CALL,
+	INST_NATIVE,
 	INST_EQ,
 	INST_HALT,
 	INST_NOT,
@@ -81,11 +83,14 @@ typedef struct {
 	Word operand;
 } Inst;
 
-const char *inst_type_as_cstr(Inst_Type type);
 const char *inst_name(Inst_Type type);
 int inst_has_operand(Inst_Type type);
 
-typedef struct {
+typedef struct EVM EVM;
+
+typedef Trap (*Evm_Native)(EVM *);
+
+struct EVM {
 	Word stack[EVM_STACK_CAPACITY];
 	uint64_t stack_size;
 
@@ -93,11 +98,15 @@ typedef struct {
 	uint64_t program_size;
 	Inst_Addr ip;
 
+	Evm_Native natives[EVM_NATIVES_CAPACITY];
+	uint64_t natives_size;
+
 	uint8_t halt;
-} EVM;
+};
 
 Trap evm_execute_inst(EVM *evm);
 Trap evm_execute_program(EVM *evm, int limit);
+void evm_push_native(EVM *evm, Evm_Native native);
 void evm_dump_stack(FILE *stream, const EVM *evm);
 void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size);
@@ -160,35 +169,6 @@ const char *trap_as_cstr(Trap trap) {
 	}
 }
 
-const char *inst_type_as_cstr(Inst_Type type) {
-	switch (type) {
-		case INST_NOP:		return "INST_NOP";
-		case INST_PUSH:		return "INST_PUSH";
-		case INST_DROP:		return "INST_DROP";
-		case INST_DUP:		return "INST_DUP";
-		case INST_SWAP:		return "INST_SWAP";
-		case INST_PLUSI:	return "INST_PLUSI";
-		case INST_MINUSI:	return "INST_MINUSI";
-		case INST_MULTI:	return "INST_MULTI";
-		case INST_DIVI:		return "INST_DIVI";
-		case INST_PLUSF:	return "INST_PLUSF";
-    		case INST_MINUSF:	return "INST_MINUSF";
-    		case INST_MULTF:	return "INST_MULTF";
-    		case INST_DIVF:		return "INST_DIVF";
-		case INST_JMP:		return "INST_JMP";
-		case INST_JMP_IF:	return "INST_JMP_IF";
-		case INST_RET:		return "INST_RET";
-		case INST_CALL:		return "INST_CALL";
-		case INST_EQ:		return "INST_EQ";
-		case INST_NOT:		return "INST_NOT";
-		case INST_GEF:		return "INST_GEF";
-		case INST_HALT:		return "INST_HALT";
-		case INST_PRINT_DEBUG:	return "INST_PRINT_DEBUG";
-		case NUMBER_OF_INSTS:
-		default: UNREACHABLE("NOT EXISTING INST_TYPE");
-	}
-}
-
 const char *inst_name(Inst_Type type) {
 	switch (type) {
 		case INST_NOP:         	return "nop";
@@ -208,6 +188,7 @@ const char *inst_name(Inst_Type type) {
 		case INST_JMP_IF:      	return "jmp_if";
 		case INST_RET:		return "ret";
 		case INST_CALL:		return "call";
+		case INST_NATIVE:	return "native";
 		case INST_EQ:          	return "eq";
 		case INST_NOT:		return "not";
 		case INST_GEF:		return "gef";
@@ -237,6 +218,7 @@ int inst_has_operand(Inst_Type type) {
 		case INST_JMP_IF:      	return 1;
 		case INST_RET:		return 0;
 		case INST_CALL:		return 1;
+		case INST_NATIVE:	return 1;
 		case INST_EQ:          	return 0;
 		case INST_NOT:		return 0;
 		case INST_GEF:		return 0;
@@ -360,6 +342,12 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip = inst.operand.as_u64;
 		break;
 
+		case INST_NATIVE:
+			if (inst.operand.as_u64 > evm->natives_size) return TRAP_ILLEGAL_OPERAND;
+			evm->natives[inst.operand.as_u64](evm);
+			evm->ip += 1;
+		break;
+
 		case INST_NOT:
 			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 1].as_u64 = !evm->stack[evm->stack_size - 1].as_u64;
@@ -425,6 +413,11 @@ Trap evm_execute_program(EVM *evm, int limit) {
 	}
 
 	return TRAP_OK;
+}
+
+void evm_push_native(EVM *evm, Evm_Native native) {
+	assert(evm->natives_size < EVM_NATIVES_CAPACITY);
+	evm->natives[evm->natives_size++] = native;
 }
 
 void evm_dump_stack(FILE *stream, const EVM *evm) {
@@ -683,6 +676,8 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 					evm_push_inst(evm, (Inst) { .type = INST_CALL, .operand = addr });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_RET });
+				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
+					evm_push_inst(evm, (Inst) { .type = INST_NATIVE, .operand = { .as_i64 = sv_to_int(operand) } });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_EQ });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
