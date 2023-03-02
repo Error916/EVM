@@ -243,7 +243,7 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_DROP:
-			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
+			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -341,7 +341,8 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_NATIVE:
 			if (inst.operand.as_u64 > evm->natives_size) return TRAP_ILLEGAL_OPERAND;
-			evm->natives[inst.operand.as_u64](evm);
+			const Trap trap = evm->natives[inst.operand.as_u64](evm);
+			if (trap != TRAP_OK) return trap;
 			evm->ip += 1;
 		break;
 
