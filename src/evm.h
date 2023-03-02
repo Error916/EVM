@@ -74,7 +74,6 @@ typedef enum {
 	INST_HALT,
 	INST_NOT,
     	INST_GEF,
-	INST_PRINT_DEBUG,
 	NUMBER_OF_INSTS,
 } Inst_Type;
 
@@ -193,7 +192,6 @@ const char *inst_name(Inst_Type type) {
 		case INST_NOT:		return "not";
 		case INST_GEF:		return "gef";
 		case INST_HALT:        	return "halt";
-		case INST_PRINT_DEBUG: 	return "print_debug";
 		case NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -223,7 +221,6 @@ int inst_has_operand(Inst_Type type) {
 		case INST_NOT:		return 0;
 		case INST_GEF:		return 0;
 		case INST_HALT:        	return 0;
-		case INST_PRINT_DEBUG: 	return 0;
 		case NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -370,17 +367,6 @@ Trap evm_execute_inst(EVM *evm) {
 
 		case INST_HALT:
 			evm->halt = 1;
-		break;
-
-		case INST_PRINT_DEBUG:
-			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
-			fprintf(stdout, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
-                    		evm->stack[evm->stack_size - 1].as_u64,
-                    		evm->stack[evm->stack_size - 1].as_i64,
-                    		evm->stack[evm->stack_size - 1].as_f64,
-                    		evm->stack[evm->stack_size - 1].as_ptr);
-			evm->stack_size -= 1;
-			evm->ip += 1;
 		break;
 
 		case INST_SWAP:
@@ -684,8 +670,6 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 					evm_push_inst(evm, (Inst) { .type = INST_GEF });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_NOT });
-				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
-					evm_push_inst(evm, (Inst) { .type = INST_PRINT_DEBUG });
 				} else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
 					evm_push_inst(evm, (Inst) { .type = INST_HALT });
 				} else {

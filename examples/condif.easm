@@ -5,8 +5,6 @@ loop:
 	push 1
 	minusi
 	dup 0
-	dup 0
-	print_debug
 	jmp_if loop
 
 halt

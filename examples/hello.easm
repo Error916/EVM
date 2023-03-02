@@ -3,5 +3,4 @@ push 2.2
 push 3.4
 plusf
 plusf
-print_debug
 halt
