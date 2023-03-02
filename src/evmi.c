@@ -18,10 +18,37 @@ static Trap evm_free(EVM *evm) {
 	return TRAP_OK;
 }
 
+static Trap evm_print_u64(EVM *evm) {
+	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+
+	printf("%lu\n", evm->stack[evm->stack_size - 1].as_u64);
+	evm->stack_size -= 1;
+
+	return TRAP_OK;
+}
+
+static Trap evm_print_i64(EVM *evm) {
+	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+
+	printf("%ld\n", evm->stack[evm->stack_size - 1].as_i64);
+	evm->stack_size -= 1;
+
+	return TRAP_OK;
+}
+
 static Trap evm_print_f64(EVM *evm) {
 	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
 
 	printf("%lf\n", evm->stack[evm->stack_size - 1].as_f64);
+	evm->stack_size -= 1;
+
+	return TRAP_OK;
+}
+
+static Trap evm_print_ptr(EVM *evm) {
+	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+
+	printf("%p\n", evm->stack[evm->stack_size - 1].as_ptr);
 	evm->stack_size -= 1;
 
 	return TRAP_OK;
@@ -46,7 +73,10 @@ int main(int argc, char **argv) {
 	// TODO: mechanism to load native function more granuraly
 	evm_push_native(&evm, evm_alloc);	// 0
 	evm_push_native(&evm, evm_free);	// 1
-	evm_push_native(&evm, evm_print_f64);	// 2
+	evm_push_native(&evm, evm_print_u64);	// 2
+	evm_push_native(&evm, evm_print_i64);	// 3
+	evm_push_native(&evm, evm_print_f64);	// 4
+	evm_push_native(&evm, evm_print_ptr);	// 5
 
 	Trap trap = evm_execute_program(&evm , limit);
 
