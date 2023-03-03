@@ -132,7 +132,7 @@ void evm_save_program_to_file(const EVM *evm, const char *file_path);
 
 typedef struct {
 	String_View name;
-	Inst_Addr addr;
+	Word word;
 } Label;
 
 typedef struct {
@@ -147,8 +147,8 @@ typedef struct {
 	size_t deferred_operands_size;
 } Label_Table;
 
-Inst_Addr lt_find_label_addr(const Label_Table *lt, String_View name);
-void lt_push(Label_Table *lt, String_View name, Inst_Addr addr);
+int lt_resolve_label(const Label_Table *lt, String_View name, Word *output);
+int lt_bind_label(Label_Table *lt, String_View name, Word word);
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
 
 void evm_translate_source(String_View source, EVM *evm, Label_Table *lt);
@@ -573,23 +573,23 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
-Inst_Addr lt_find_label_addr(const Label_Table *lt, String_View name) {
+int lt_resolve_label(const Label_Table *lt, String_View name, Word *output) {
 	for (size_t i = 0; i < lt->labels_size; ++i) {
 		if (sv_eq(lt->labels[i].name, name)) {
-			return lt->labels[i].addr;
+			*output = lt->labels[i].word;
+			return 1;
 		}
 	}
 
-	fprintf(stderr, "ERROR: label '%.*s' does not exist\n", (int)name.count, name.data);
-	exit(1);
+	return 0;
 }
 
-void lt_push(Label_Table *lt, String_View name, Inst_Addr addr) {
+int lt_bind_label(Label_Table *lt, String_View name, Word word) {
 	assert(lt->labels_size < LABELS_CAPACITY);
-	lt->labels[lt->labels_size++] = (Label) {
-		.name = name,
-		.addr = addr,
-	};
+	Word ignore = { 0 };
+	if (lt_resolve_label(lt, name, &ignore)) return 0;
+	lt->labels[lt->labels_size++] = (Label) { .name = name, .word = word };
+	return 1;
 }
 
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label) {
@@ -627,7 +627,11 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", (int)value.count, value.data, line_number);
 							exit(1);
 						}
-						lt_push(lt, label, word.as_u64);
+
+						if (!lt_bind_label(lt, label, word)) {
+							fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", (int)label.count, label.data, line_number);
+							exit(1);
+						}
 					} else {
 						fprintf(stderr, "ERROR: label name in not provided on line %lu\n", line_number);
 						exit(1);
@@ -643,7 +647,10 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						.count = token.count - 1,
 						.data = token.data,
 					};
-					lt_push(lt, label, evm->program_size);
+					if (!lt_bind_label(lt, label, (Word) { .as_u64 = evm->program_size })) {
+						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", (int)label.count, label.data, line_number);
+						exit(1);
+					}
 					token = sv_trim(sv_chop_by_delim(&line, ' '));
 				}
 
@@ -675,8 +682,11 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 
 	// Second pass
 	for (size_t i = 0; i < lt->deferred_operands_size; ++i) {
-		Inst_Addr addr = lt_find_label_addr(lt, lt->deferred_operands[i].label);
-		evm->program[lt->deferred_operands[i].addr].operand.as_u64 = addr;
+		String_View label = lt->deferred_operands[i].label;
+		if (!lt_resolve_label(lt, label, &evm->program[lt->deferred_operands[i].addr].operand)) {
+			fprintf(stderr, "ERROR: unknown label '%*.s'\n ", (int)label.count, label.data);
+			exit(1);
+		}
 	}
 }
 
@@ -688,8 +698,7 @@ int number_literal_as_word(String_View sv, Word *output) {
 	memcpy(cstr, sv.data, sv.count);
 	cstr[sv.count] = '\0';
 
-	Word result = {0};
-
+	Word result = { 0 };
 	result.as_u64 = strtoull(cstr, &endptr, 10);
 	if ((size_t) (endptr - cstr) != sv.count) {
 		result.as_f64 = strtod(cstr, &endptr);
