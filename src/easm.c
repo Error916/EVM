@@ -14,8 +14,7 @@ int main(int argc, char **argv) {
 	const char *input_file_path = argv[1];
 	const char *output_file_path = argv[2];
 
-	String_View source = sv_slurp_file(input_file_path);
-	evm_translate_source(source, &evm, &lt);
+	evm_translate_source(&evm, &lt, cstr_as_sv(input_file_path), 0);
 	evm_save_program_to_file(&evm, output_file_path);
 
 	return 0;

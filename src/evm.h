@@ -25,17 +25,20 @@
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
 #define EVM_NATIVES_CAPACITY 1024
-#define LABELS_CAPACITY 1024
-#define DEFERRED_OPERANDS_CAPACITY 1024
-#define NUMBER_LITERAL_CAPACITY 1024
 
+#define EASM_LABELS_CAPACITY 1024
+#define EASM_DEFERRED_OPERANDS_CAPACITY 1024
+#define EASM_NUMBER_LITERAL_CAPACITY 1024
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
+#define EASM_MAX_INCLUDE_LEVEL 64
 
 typedef struct {
 	size_t count;
 	const char *data;
 } String_View;
+
+#define SV_FORMAT(sv) (int)sv.count, sv.data
 
 String_View cstr_as_sv(const char *cstr);
 int sv_eq(String_View a, String_View b);
@@ -44,7 +47,7 @@ String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
-String_View sv_slurp_file(const char *file_path);
+String_View sv_slurp_file(String_View file_path);
 
 typedef uint64_t Inst_Addr;
 
@@ -91,7 +94,7 @@ typedef enum {
 	INST_HALT,
 	INST_NOT,
     	INST_GEF,
-	NUMBER_OF_INSTS,
+	EASM_NUMBER_OF_INSTS,
 } Inst_Type;
 
 typedef struct {
@@ -141,9 +144,9 @@ typedef struct {
 } Deferred_Operand;
 
 typedef struct {
-	Label labels[LABELS_CAPACITY];
+	Label labels[EASM_LABELS_CAPACITY];
 	size_t labels_size;
-	Deferred_Operand deferred_operands[DEFERRED_OPERANDS_CAPACITY];
+	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
 	size_t deferred_operands_size;
 } Label_Table;
 
@@ -151,7 +154,7 @@ int lt_resolve_label(const Label_Table *lt, String_View name, Word *output);
 int lt_bind_label(Label_Table *lt, String_View name, Word word);
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
 
-void evm_translate_source(String_View source, EVM *evm, Label_Table *lt);
+void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path, size_t level);
 
 int number_literal_as_word(String_View sv, Word *output);
 
@@ -173,7 +176,7 @@ const char *trap_as_cstr(Trap trap) {
 }
 
 int inst_by_name(String_View name, Inst_Type *type) {
-	for (Inst_Type t = (Inst_Type) 0; t < NUMBER_OF_INSTS; ++t) {
+	for (Inst_Type t = (Inst_Type) 0; t < EASM_NUMBER_OF_INSTS; ++t) {
 		if (sv_eq(cstr_as_sv(inst_name(t)), name)) {
 			*type = t;
 			return 1;
@@ -206,7 +209,7 @@ const char *inst_name(Inst_Type type) {
 		case INST_NOT:		return "not";
 		case INST_GEF:		return "gef";
 		case INST_HALT:        	return "halt";
-		case NUMBER_OF_INSTS:
+		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
 }
@@ -235,7 +238,7 @@ int inst_has_operand(Inst_Type type) {
 		case INST_NOT:		return 0;
 		case INST_GEF:		return 0;
 		case INST_HALT:        	return 0;
-		case NUMBER_OF_INSTS:
+		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
 }
@@ -394,7 +397,7 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
-		case NUMBER_OF_INSTS:
+		case EASM_NUMBER_OF_INSTS:
 
 		default:
 			return TRAP_ILLEGAL_INST;
@@ -547,6 +550,7 @@ String_View sv_trim_right(String_View sv) {
 	};
 }
 
+// TODO: remove both spaces and tabs
 String_View sv_trim(String_View sv) {
 	return sv_trim_right(sv_trim_left(sv));
 }
@@ -585,7 +589,7 @@ int lt_resolve_label(const Label_Table *lt, String_View name, Word *output) {
 }
 
 int lt_bind_label(Label_Table *lt, String_View name, Word word) {
-	assert(lt->labels_size < LABELS_CAPACITY);
+	assert(lt->labels_size < EASM_LABELS_CAPACITY);
 	Word ignore = { 0 };
 	if (lt_resolve_label(lt, name, &ignore)) return 0;
 	lt->labels[lt->labels_size++] = (Label) { .name = name, .word = word };
@@ -593,14 +597,16 @@ int lt_bind_label(Label_Table *lt, String_View name, Word word) {
 }
 
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label) {
-	assert(lt->deferred_operands_size < DEFERRED_OPERANDS_CAPACITY);
+	assert(lt->deferred_operands_size < EASM_DEFERRED_OPERANDS_CAPACITY);
 	lt->deferred_operands[lt->deferred_operands_size++] = (Deferred_Operand) {
 		.addr = addr,
 		.label = label,
 	};
 }
 
-void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
+void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path, size_t level) {
+	String_View original_source = sv_slurp_file(input_file_path);
+	String_View source = original_source;
 	evm->program_size = 0;
 	size_t line_number = 0;
 
@@ -624,20 +630,41 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						String_View value = sv_chop_by_delim(&line, ' ');
 						Word word = { 0 };
 						if (!number_literal_as_word(value, &word)) {
-							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", (int)value.count, value.data, line_number);
+							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(value), line_number);
 							exit(1);
 						}
 
 						if (!lt_bind_label(lt, label, word)) {
-							fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", (int)label.count, label.data, line_number);
+							fprintf(stderr, "ERROR: label '%.*s' is allready define\n", SV_FORMAT(label));
 							exit(1);
 						}
 					} else {
 						fprintf(stderr, "ERROR: label name in not provided on line %lu\n", line_number);
 						exit(1);
 					}
-				} else {
-					fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
+				} else if (sv_eq(token, cstr_as_sv("include"))) {
+					line = sv_trim(line);
+					if (line.count > 0) {
+						if (line.data[0] == '"' && line.data[line.count - 1] == '"') {
+							line.count -= 2;
+							line.data += 1;
+
+							if (level + 1 >= EASM_MAX_INCLUDE_LEVEL) {
+								fprintf(stderr, "ERROR: exceeded maximum include level\n");
+								exit(1);
+							}
+
+							evm_translate_source(evm, lt, line, level + 1);
+						} else {
+							fprintf(stderr, "ERROR: path must be surrounded by quotation marks on line %lu\n", line_number);
+							exit(1);
+						}
+					} else {
+						fprintf(stderr, "ERROR: include file path is not provided on line %lu\n", line_number);
+						exit(1);
+					}
+			 	} else {
+					fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
 					exit(1);
 				}
 			} else {
@@ -648,7 +675,7 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						.data = token.data,
 					};
 					if (!lt_bind_label(lt, label, (Word) { .as_u64 = evm->program_size })) {
-						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", (int)label.count, label.data, line_number);
+						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", SV_FORMAT(label), line_number);
 						exit(1);
 					}
 					token = sv_trim(sv_chop_by_delim(&line, ' '));
@@ -663,7 +690,7 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						evm->program[evm->program_size].type = inst_type;
 						if (inst_has_operand(inst_type)) {
 							if (operand.count == 0) {
-								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", (int)token.count, token.data, line_number);
+								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", SV_FORMAT(token), line_number);
 								exit(1);
 							}
 							if (!number_literal_as_word(operand, &evm->program[evm->program_size].operand)) {
@@ -672,7 +699,7 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 						}
 						evm->program_size += 1;
 					} else {
-						fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
+						fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
 						exit(1);
 					}
 				}
@@ -684,15 +711,17 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 	for (size_t i = 0; i < lt->deferred_operands_size; ++i) {
 		String_View label = lt->deferred_operands[i].label;
 		if (!lt_resolve_label(lt, label, &evm->program[lt->deferred_operands[i].addr].operand)) {
-			fprintf(stderr, "ERROR: unknown label '%*.s'\n ", (int)label.count, label.data);
+			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
 			exit(1);
 		}
 	}
+
+	free((void *) original_source.data);
 }
 
 int number_literal_as_word(String_View sv, Word *output) {
-	assert(sv.count < NUMBER_LITERAL_CAPACITY);
-	char cstr[NUMBER_LITERAL_CAPACITY];
+	assert(sv.count < EASM_NUMBER_LITERAL_CAPACITY);
+	char cstr[EASM_NUMBER_LITERAL_CAPACITY];
 	char *endptr = 0;
 
 	memcpy(cstr, sv.data, sv.count);
@@ -709,22 +738,30 @@ int number_literal_as_word(String_View sv, Word *output) {
 	return 1;
 }
 
-String_View sv_slurp_file(const char *file_path) {
-	FILE *f = fopen(file_path, "r");
+String_View sv_slurp_file(String_View file_path) {
+	char *file_path_cstr = malloc(file_path.count + 1);
+	if (file_path_cstr == NULL) {
+		fprintf(stderr, "Could not allocate memory for file path: %s\n", strerror(errno));
+		exit(1);
+	}
+	memcpy(file_path_cstr, file_path.data, file_path.count);
+	file_path_cstr[file_path.count] = '\0';
+
+	FILE *f = fopen(file_path_cstr, "r");
 
 	if (f == NULL) {
-		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not open file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
 	}
 
 	if (fseek(f, 0, SEEK_END) < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not read file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
 	}
 
 	long m = ftell(f);
 	if (m < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not read file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
 	}
 
@@ -735,17 +772,18 @@ String_View sv_slurp_file(const char *file_path) {
 	}
 
 	if (fseek(f, 0, SEEK_SET) < 0) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not read file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
 	}
 
 	size_t n = fread(buffer, 1, m, f);
 	if (ferror(f)) {
-		fprintf(stderr, "Could not read file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "Could not read file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
 	}
 
 	fclose(f);
+	free(file_path_cstr);
 
 	return (String_View) {
 		.count = n,

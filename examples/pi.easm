@@ -5,6 +5,7 @@
 ; and subtracting fractions with a numerator of 4 and a denominator of each
 ; subsequent odd number. The more times you do this, the closer you will get to pi.
 ;
+#include "./examples/natives.hasm"
 
 push 4.0        ; acc (result of first division 4/1)
 push 3.0        ; denominator
@@ -52,6 +53,6 @@ loop:
 drop
 drop
 
-native 4
+native print_f64
 
 halt
