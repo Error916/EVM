@@ -43,7 +43,6 @@ typedef struct {
 
 String_View cstr_as_sv(const char *cstr);
 int sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
@@ -94,6 +93,12 @@ typedef enum {
 	INST_HALT,
 	INST_NOT,
     	INST_GEF,
+	INST_ANDB,
+    	INST_ORB,
+   	INST_XOR,
+  	INST_SHR,
+    	INST_SHL,
+    	INST_NOTB,
 	EASM_NUMBER_OF_INSTS,
 } Inst_Type;
 
@@ -150,15 +155,14 @@ typedef struct {
 	size_t deferred_operands_size;
 	unsigned char memory[EASM_MEMORY_CAPACITY];
 	size_t memory_size;
-} Label_Table;
+} EASM;
 
-void *lt_alloc(Label_Table *lt, size_t size);
-String_View lt_slurp_file(Label_Table *lt, String_View file_path);
-int lt_resolve_label(const Label_Table *lt, String_View name, Word *output);
-int lt_bind_label(Label_Table *lt, String_View name, Word word);
-void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
-
-void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path, size_t level);
+void *easm_alloc(EASM *easm, size_t size);
+String_View easm_slurp_file(EASM *easm, String_View file_path);
+int easm_resolve_label(const EASM *easm, String_View name, Word *output);
+int easm_bind_label(EASM *easm, String_View name, Word word);
+void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
+void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, size_t level);
 
 int number_literal_as_word(String_View sv, Word *output);
 
@@ -213,6 +217,12 @@ const char *inst_name(Inst_Type type) {
 		case INST_NOT:		return "not";
 		case INST_GEF:		return "gef";
 		case INST_HALT:        	return "halt";
+		case INST_ANDB:		return "andb";
+		case INST_ORB:		return "orb";
+		case INST_XOR:		return "xor";
+		case INST_SHR:		return "shr";
+		case INST_SHL:		return "shl";
+		case INST_NOTB:		return "notb";
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -242,6 +252,12 @@ int inst_has_operand(Inst_Type type) {
 		case INST_NOT:		return 0;
 		case INST_GEF:		return 0;
 		case INST_HALT:        	return 0;
+		case INST_ANDB:   	return 0;
+		case INST_ORB:    	return 0;
+		case INST_XOR:    	return 0;
+		case INST_SHR:    	return 0;
+		case INST_SHL:    	return 0;
+		case INST_NOTB:   	return 0;
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -401,6 +417,47 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
+		case INST_ANDB:
+		        if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 & evm->stack[evm->stack_size - 1].as_u64;
+        		evm->stack_size -= 1;
+        		evm->ip += 1;
+        	break;
+
+    		case INST_ORB:
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 | evm->stack[evm->stack_size - 1].as_u64;
+        		evm->stack_size -= 1;
+        		evm->ip += 1;
+        	break;
+
+    		case INST_XOR:
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 ^ evm->stack[evm->stack_size - 1].as_u64;
+        		evm->stack_size -= 1;
+        		evm->ip += 1;
+        	break;
+
+    		case INST_SHR:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 >> evm->stack[evm->stack_size - 1].as_u64;
+        		evm->stack_size -= 1;
+        		evm->ip += 1;
+        	break;
+
+    		case INST_SHL:
+       			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 << evm->stack[evm->stack_size - 1].as_u64;
+        		evm->stack_size -= 1;
+       			evm->ip += 1;
+        	break;
+
+    		case INST_NOTB:
+        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		evm->stack[evm->stack_size - 1].as_u64 = ~evm->stack[evm->stack_size - 1].as_u64;
+        		evm->ip += 1;
+        	break;
+
 		case EASM_NUMBER_OF_INSTS:
 
 		default:
@@ -520,16 +577,6 @@ int sv_eq(String_View a, String_View b) {
 	else return (memcmp(a.data, b.data, a.count) == 0);
 }
 
-int sv_to_int(String_View sv) {
-	int result = 0;
-
-	for (size_t i = 0; i < sv.count && isdigit(sv.data[i]); ++i) {
-		result = result * 10 + sv.data[i] - '0';
-	}
-
-	return result;
-}
-
 String_View sv_trim_left(String_View sv) {
 	size_t i = 0;
 	while (i < sv.count && isspace(sv.data[i])) {
@@ -581,18 +628,18 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
-void *lt_alloc(Label_Table *lt, size_t size) {
-	assert(lt->memory_size + size <= EASM_MEMORY_CAPACITY);
+void *easm_alloc(EASM *easm, size_t size) {
+	assert(easm->memory_size + size <= EASM_MEMORY_CAPACITY);
 
-	void *result = lt->memory + lt->memory_size;
-	lt->memory_size += size;
+	void *result = easm->memory + easm->memory_size;
+	easm->memory_size += size;
 	return result;
 }
 
-int lt_resolve_label(const Label_Table *lt, String_View name, Word *output) {
-	for (size_t i = 0; i < lt->labels_size; ++i) {
-		if (sv_eq(lt->labels[i].name, name)) {
-			*output = lt->labels[i].word;
+int easm_resolve_label(const EASM *easm, String_View name, Word *output) {
+	for (size_t i = 0; i < easm->labels_size; ++i) {
+		if (sv_eq(easm->labels[i].name, name)) {
+			*output = easm->labels[i].word;
 			return 1;
 		}
 	}
@@ -600,24 +647,24 @@ int lt_resolve_label(const Label_Table *lt, String_View name, Word *output) {
 	return 0;
 }
 
-int lt_bind_label(Label_Table *lt, String_View name, Word word) {
-	assert(lt->labels_size < EASM_LABELS_CAPACITY);
+int easm_bind_label(EASM *easm, String_View name, Word word) {
+	assert(easm->labels_size < EASM_LABELS_CAPACITY);
 	Word ignore = { 0 };
-	if (lt_resolve_label(lt, name, &ignore)) return 0;
-	lt->labels[lt->labels_size++] = (Label) { .name = name, .word = word };
+	if (easm_resolve_label(easm, name, &ignore)) return 0;
+	easm->labels[easm->labels_size++] = (Label) { .name = name, .word = word };
 	return 1;
 }
 
-void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label) {
-	assert(lt->deferred_operands_size < EASM_DEFERRED_OPERANDS_CAPACITY);
-	lt->deferred_operands[lt->deferred_operands_size++] = (Deferred_Operand) {
+void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View label) {
+	assert(easm->deferred_operands_size < EASM_DEFERRED_OPERANDS_CAPACITY);
+	easm->deferred_operands[easm->deferred_operands_size++] = (Deferred_Operand) {
 		.addr = addr,
 		.label = label,
 	};
 }
 
-void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path, size_t level) {
-	String_View original_source = lt_slurp_file(lt, input_file_path);
+void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, size_t level) {
+	String_View original_source = easm_slurp_file(easm, input_file_path);
 	String_View source = original_source;
 	evm->program_size = 0;
 	size_t line_number = 0;
@@ -646,7 +693,7 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 							exit(1);
 						}
 
-						if (!lt_bind_label(lt, label, word)) {
+						if (!easm_bind_label(easm, label, word)) {
 							fprintf(stderr, "ERROR: label '%.*s' is allready define\n", SV_FORMAT(label));
 							exit(1);
 						}
@@ -666,7 +713,7 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 								exit(1);
 							}
 
-							evm_translate_source(evm, lt, line, level + 1);
+							easm_translate_source(evm, easm, line, level + 1);
 						} else {
 							fprintf(stderr, "ERROR: path must be surrounded by quotation marks on line %lu\n", line_number);
 							exit(1);
@@ -686,7 +733,7 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 						.count = token.count - 1,
 						.data = token.data,
 					};
-					if (!lt_bind_label(lt, label, (Word) { .as_u64 = evm->program_size })) {
+					if (!easm_bind_label(easm, label, (Word) { .as_u64 = evm->program_size })) {
 						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", SV_FORMAT(label), line_number);
 						exit(1);
 					}
@@ -706,7 +753,7 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 								exit(1);
 							}
 							if (!number_literal_as_word(operand, &evm->program[evm->program_size].operand)) {
-								lt_push_deferred_operand(lt, evm->program_size, operand);
+								easm_push_deferred_operand(easm, evm->program_size, operand);
 							}
 						}
 						evm->program_size += 1;
@@ -720,9 +767,9 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 	}
 
 	// Second pass
-	for (size_t i = 0; i < lt->deferred_operands_size; ++i) {
-		String_View label = lt->deferred_operands[i].label;
-		if (!lt_resolve_label(lt, label, &evm->program[lt->deferred_operands[i].addr].operand)) {
+	for (size_t i = 0; i < easm->deferred_operands_size; ++i) {
+		String_View label = easm->deferred_operands[i].label;
+		if (!easm_resolve_label(easm, label, &evm->program[easm->deferred_operands[i].addr].operand)) {
 			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
 			exit(1);
 		}
@@ -748,8 +795,8 @@ int number_literal_as_word(String_View sv, Word *output) {
 	return 1;
 }
 
-String_View lt_slurp_file(Label_Table *lt, String_View file_path) {
-	char *file_path_cstr = lt_alloc(lt, file_path.count + 1);
+String_View easm_slurp_file(EASM *easm, String_View file_path) {
+	char *file_path_cstr = easm_alloc(easm, file_path.count + 1);
 	if (file_path_cstr == NULL) {
 		fprintf(stderr, "Could not allocate memory for file path: %s\n", strerror(errno));
 		exit(1);
@@ -775,7 +822,7 @@ String_View lt_slurp_file(Label_Table *lt, String_View file_path) {
 		exit(1);
 	}
 
-	char *buffer = lt_alloc(lt, m);
+	char *buffer = easm_alloc(easm, m);
 	if (buffer == NULL) {
 		fprintf(stderr, "Could not allocate memory for file: %s\n", strerror(errno));
 		exit(1);
