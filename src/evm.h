@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
@@ -28,7 +29,6 @@
 
 #define EASM_LABELS_CAPACITY 1024
 #define EASM_DEFERRED_OPERANDS_CAPACITY 1024
-#define EASM_NUMBER_LITERAL_CAPACITY 1024
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
 #define EASM_MAX_INCLUDE_LEVEL 64
@@ -42,7 +42,7 @@ typedef struct {
 #define SV_FORMAT(sv) (int)sv.count, sv.data
 
 String_View cstr_as_sv(const char *cstr);
-int sv_eq(String_View a, String_View b);
+bool sv_eq(String_View a, String_View b);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
@@ -107,9 +107,9 @@ typedef struct {
 	Word operand;
 } Inst;
 
-int inst_by_name(String_View name, Inst_Type *type);
 const char *inst_name(Inst_Type type);
 int inst_has_operand(Inst_Type type);
+bool inst_by_name(String_View name, Inst_Type *type);
 
 typedef struct EVM EVM;
 
@@ -159,12 +159,11 @@ typedef struct {
 
 void *easm_alloc(EASM *easm, size_t size);
 String_View easm_slurp_file(EASM *easm, String_View file_path);
-int easm_resolve_label(const EASM *easm, String_View name, Word *output);
-int easm_bind_label(EASM *easm, String_View name, Word word);
+bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
+bool easm_bind_label(EASM *easm, String_View name, Word word);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
 void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, size_t level);
-
-int number_literal_as_word(String_View sv, Word *output);
+bool easm_number_literal_as_word(EASM *easm, String_View sv, Word *output);
 
 #endif // EVM_H_
 
@@ -181,16 +180,6 @@ const char *trap_as_cstr(Trap trap) {
 		case TRAP_DIV_BY_ZERO:		return "TRAP_DIV_BY_ZERO";
 		default: UNREACHABLE("NOT EXISTING TRAP");
 	}
-}
-
-int inst_by_name(String_View name, Inst_Type *type) {
-	for (Inst_Type t = (Inst_Type) 0; t < EASM_NUMBER_OF_INSTS; ++t) {
-		if (sv_eq(cstr_as_sv(inst_name(t)), name)) {
-			*type = t;
-			return 1;
-		}
-	}
-	return 0;
 }
 
 const char *inst_name(Inst_Type type) {
@@ -261,6 +250,16 @@ int inst_has_operand(Inst_Type type) {
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
+}
+
+bool inst_by_name(String_View name, Inst_Type *type) {
+	for (Inst_Type t = (Inst_Type) 0; t < EASM_NUMBER_OF_INSTS; ++t) {
+		if (sv_eq(cstr_as_sv(inst_name(t)), name)) {
+			*type = t;
+			return true;
+		}
+	}
+	return false;
 }
 
 Trap evm_execute_inst(EVM *evm) {
@@ -572,8 +571,8 @@ String_View cstr_as_sv(const char *cstr) {
 	};
 }
 
-int sv_eq(String_View a, String_View b) {
-	if (a.count != b.count) return 0;
+bool sv_eq(String_View a, String_View b) {
+	if (a.count != b.count) return false;
 	else return (memcmp(a.data, b.data, a.count) == 0);
 }
 
@@ -636,23 +635,23 @@ void *easm_alloc(EASM *easm, size_t size) {
 	return result;
 }
 
-int easm_resolve_label(const EASM *easm, String_View name, Word *output) {
+bool easm_resolve_label(const EASM *easm, String_View name, Word *output) {
 	for (size_t i = 0; i < easm->labels_size; ++i) {
 		if (sv_eq(easm->labels[i].name, name)) {
 			*output = easm->labels[i].word;
-			return 1;
+			return true;
 		}
 	}
 
-	return 0;
+	return false;
 }
 
-int easm_bind_label(EASM *easm, String_View name, Word word) {
+bool easm_bind_label(EASM *easm, String_View name, Word word) {
 	assert(easm->labels_size < EASM_LABELS_CAPACITY);
 	Word ignore = { 0 };
-	if (easm_resolve_label(easm, name, &ignore)) return 0;
+	if (easm_resolve_label(easm, name, &ignore)) return false;
 	easm->labels[easm->labels_size++] = (Label) { .name = name, .word = word };
-	return 1;
+	return true;
 }
 
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View label) {
@@ -688,7 +687,7 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 						line = sv_trim(line);
 						String_View value = sv_chop_by_delim(&line, ' ');
 						Word word = { 0 };
-						if (!number_literal_as_word(value, &word)) {
+						if (!easm_number_literal_as_word(easm, value, &word)) {
 							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(value), line_number);
 							exit(1);
 						}
@@ -752,7 +751,7 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", SV_FORMAT(token), line_number);
 								exit(1);
 							}
-							if (!number_literal_as_word(operand, &evm->program[evm->program_size].operand)) {
+							if (!easm_number_literal_as_word(easm, operand, &evm->program[evm->program_size].operand)) {
 								easm_push_deferred_operand(easm, evm->program_size, operand);
 							}
 						}
@@ -776,23 +775,21 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 	}
 }
 
-int number_literal_as_word(String_View sv, Word *output) {
-	assert(sv.count < EASM_NUMBER_LITERAL_CAPACITY);
-	char cstr[EASM_NUMBER_LITERAL_CAPACITY];
-	char *endptr = 0;
-
+bool easm_number_literal_as_word(EASM *easm, String_View sv, Word *output) {
+	char *cstr = easm_alloc(easm, sv.count + 1);
 	memcpy(cstr, sv.data, sv.count);
 	cstr[sv.count] = '\0';
 
+	char *endptr = 0;
 	Word result = { 0 };
 	result.as_u64 = strtoull(cstr, &endptr, 10);
 	if ((size_t) (endptr - cstr) != sv.count) {
 		result.as_f64 = strtod(cstr, &endptr);
-		if ((size_t) (endptr - cstr) != sv.count) return 0;
+		if ((size_t) (endptr - cstr) != sv.count) return false;
 	}
 
 	*output = result;
-	return 1;
+	return true;
 }
 
 String_View easm_slurp_file(EASM *easm, String_View file_path) {
