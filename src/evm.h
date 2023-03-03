@@ -30,6 +30,7 @@
 #define NUMBER_LITERAL_CAPACITY 1024
 
 #define EASM_COMMENT_CHAR ';'
+#define EASM_PP_CHAR '#'
 
 typedef struct {
 	size_t count;
@@ -603,44 +604,76 @@ void evm_translate_source(String_View source, EVM *evm, Label_Table *lt) {
 	evm->program_size = 0;
 	size_t line_number = 0;
 
+	// First pass
 	while (source.count > 0) {
 		assert(evm->program_size < EVM_PROGRAM_CAPACITY);
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
 		line_number += 1;
 		if (line.count > 0 && *line.data != EASM_COMMENT_CHAR) {
-			String_View token = sv_chop_by_delim(&line, ' ');
+			String_View token = sv_trim(sv_chop_by_delim(&line, ' '));
 
-			if (token.count > 0 && token.data[token.count - 1] == ':') {
-				String_View label = {
-					.count = token.count - 1,
-					.data = token.data,
-				};
-				lt_push(lt, label, evm->program_size);
-				// We need to time forst so we support multiple spaces
-				line = sv_trim(line);
-				token = sv_chop_by_delim(&line, ' ');
-			}
-
-			if (token.count > 0) {
-				String_View operand = sv_trim(sv_chop_by_delim(&line, EASM_COMMENT_CHAR));
-
-				Inst_Type inst_type = INST_NOP;
-				if (inst_by_name(token, &inst_type)) {
-					evm->program[evm->program_size].type = inst_type;
-					if (inst_has_operand(inst_type)) {
-						if (!number_literal_as_word(operand, &evm->program[evm->program_size].operand)) {
-							lt_push_deferred_operand(lt, evm->program_size, operand);
+			// Pre-processor
+			if (token.count > 0 && token.data[0] == EASM_PP_CHAR) {
+				token.count -= 1;
+				token.data += 1;
+				if (sv_eq(token, cstr_as_sv("label"))) {
+					line = sv_trim(line);
+					String_View label = sv_chop_by_delim(&line, ' ');
+					if (label.count > 0) {
+						line = sv_trim(line);
+						String_View value = sv_chop_by_delim(&line, ' ');
+						Word word = { 0 };
+						if (!number_literal_as_word(value, &word)) {
+							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", (int)value.count, value.data, line_number);
+							exit(1);
 						}
+						lt_push(lt, label, word.as_u64);
+					} else {
+						fprintf(stderr, "ERROR: label name in not provided on line %lu\n", line_number);
+						exit(1);
 					}
-					evm->program_size += 1;
 				} else {
-					fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
+					fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
 					exit(1);
+				}
+			} else {
+				// Label
+				if (token.count > 0 && token.data[token.count - 1] == ':') {
+					String_View label = {
+						.count = token.count - 1,
+						.data = token.data,
+					};
+					lt_push(lt, label, evm->program_size);
+					token = sv_trim(sv_chop_by_delim(&line, ' '));
+				}
+
+				// Instraction
+				if (token.count > 0) {
+					String_View operand = sv_trim(sv_chop_by_delim(&line, EASM_COMMENT_CHAR));
+
+					Inst_Type inst_type = INST_NOP;
+					if (inst_by_name(token, &inst_type)) {
+						evm->program[evm->program_size].type = inst_type;
+						if (inst_has_operand(inst_type)) {
+							if (operand.count == 0) {
+								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", (int)token.count, token.data, line_number);
+								exit(1);
+							}
+							if (!number_literal_as_word(operand, &evm->program[evm->program_size].operand)) {
+								lt_push_deferred_operand(lt, evm->program_size, operand);
+							}
+						}
+						evm->program_size += 1;
+					} else {
+						fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", (int)token.count, token.data, line_number);
+						exit(1);
+					}
 				}
 			}
 		}
 	}
 
+	// Second pass
 	for (size_t i = 0; i < lt->deferred_operands_size; ++i) {
 		Inst_Addr addr = lt_find_label_addr(lt, lt->deferred_operands[i].label);
 		evm->program[lt->deferred_operands[i].addr].operand.as_u64 = addr;
