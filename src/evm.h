@@ -32,6 +32,7 @@
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
 #define EASM_MAX_INCLUDE_LEVEL 64
+#define EASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
 
 typedef struct {
 	size_t count;
@@ -47,7 +48,6 @@ String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
-String_View sv_slurp_file(String_View file_path);
 
 typedef uint64_t Inst_Addr;
 
@@ -148,8 +148,12 @@ typedef struct {
 	size_t labels_size;
 	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
 	size_t deferred_operands_size;
+	unsigned char memory[EASM_MEMORY_CAPACITY];
+	size_t memory_size;
 } Label_Table;
 
+void *lt_alloc(Label_Table *lt, size_t size);
+String_View lt_slurp_file(Label_Table *lt, String_View file_path);
 int lt_resolve_label(const Label_Table *lt, String_View name, Word *output);
 int lt_bind_label(Label_Table *lt, String_View name, Word word);
 void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View name);
@@ -577,6 +581,14 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
+void *lt_alloc(Label_Table *lt, size_t size) {
+	assert(lt->memory_size + size <= EASM_MEMORY_CAPACITY);
+
+	void *result = lt->memory + lt->memory_size;
+	lt->memory_size += size;
+	return result;
+}
+
 int lt_resolve_label(const Label_Table *lt, String_View name, Word *output) {
 	for (size_t i = 0; i < lt->labels_size; ++i) {
 		if (sv_eq(lt->labels[i].name, name)) {
@@ -605,7 +617,7 @@ void lt_push_deferred_operand(Label_Table *lt, Inst_Addr addr, String_View label
 }
 
 void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path, size_t level) {
-	String_View original_source = sv_slurp_file(input_file_path);
+	String_View original_source = lt_slurp_file(lt, input_file_path);
 	String_View source = original_source;
 	evm->program_size = 0;
 	size_t line_number = 0;
@@ -715,8 +727,6 @@ void evm_translate_source(EVM *evm, Label_Table *lt, String_View input_file_path
 			exit(1);
 		}
 	}
-
-	free((void *) original_source.data);
 }
 
 int number_literal_as_word(String_View sv, Word *output) {
@@ -738,8 +748,8 @@ int number_literal_as_word(String_View sv, Word *output) {
 	return 1;
 }
 
-String_View sv_slurp_file(String_View file_path) {
-	char *file_path_cstr = malloc(file_path.count + 1);
+String_View lt_slurp_file(Label_Table *lt, String_View file_path) {
+	char *file_path_cstr = lt_alloc(lt, file_path.count + 1);
 	if (file_path_cstr == NULL) {
 		fprintf(stderr, "Could not allocate memory for file path: %s\n", strerror(errno));
 		exit(1);
@@ -765,7 +775,7 @@ String_View sv_slurp_file(String_View file_path) {
 		exit(1);
 	}
 
-	char *buffer = malloc(m);
+	char *buffer = lt_alloc(lt, m);
 	if (buffer == NULL) {
 		fprintf(stderr, "Could not allocate memory for file: %s\n", strerror(errno));
 		exit(1);
@@ -783,7 +793,6 @@ String_View sv_slurp_file(String_View file_path) {
 	}
 
 	fclose(f);
-	free(file_path_cstr);
 
 	return (String_View) {
 		.count = n,
