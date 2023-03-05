@@ -26,6 +26,8 @@
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
 #define EVM_NATIVES_CAPACITY 1024
+// #define EVM_MEMORY_CAPACITY (640 * 1000)
+#define EVM_MEMORY_CAPACITY (30)
 
 #define EASM_LABELS_CAPACITY 1024
 #define EASM_DEFERRED_OPERANDS_CAPACITY 1024
@@ -49,6 +51,7 @@ String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
 
 typedef uint64_t Inst_Addr;
+typedef uint64_t Memory_Addr;
 
 typedef union {
 	uint64_t as_u64;
@@ -64,6 +67,7 @@ typedef enum {
 	TRAP_STACK_UNDERFLOW,
 	TRAP_ILLEGAL_INST,
 	TRAP_ILLEGAL_INST_ACCESS,
+	TRAP_ILLEGAL_MEMORY_ACCESS,
 	TRAP_ILLEGAL_OPERAND,
 	TRAP_DIV_BY_ZERO,
 } Trap;
@@ -99,6 +103,14 @@ typedef enum {
   	INST_SHR,
     	INST_SHL,
     	INST_NOTB,
+	INST_READ8,
+	INST_READ16,
+	INST_READ32,
+	INST_READ64,
+	INST_WRITE8,
+	INST_WRITE16,
+	INST_WRITE32,
+	INST_WRITE64,
 	EASM_NUMBER_OF_INSTS,
 } Inst_Type;
 
@@ -126,13 +138,16 @@ struct EVM {
 	Evm_Native natives[EVM_NATIVES_CAPACITY];
 	uint64_t natives_size;
 
-	uint8_t halt;
+	uint8_t memory[EVM_MEMORY_CAPACITY];
+
+	bool halt;
 };
 
 Trap evm_execute_inst(EVM *evm);
 Trap evm_execute_program(EVM *evm, int limit);
 void evm_push_native(EVM *evm, Evm_Native native);
 void evm_dump_stack(FILE *stream, const EVM *evm);
+void evm_dump_memory(FILE *stream, const EVM *evm);
 void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
@@ -171,13 +186,14 @@ bool easm_number_literal_as_word(EASM *easm, String_View sv, Word *output);
 
 const char *trap_as_cstr(Trap trap) {
 	switch (trap) {
-		case TRAP_OK:			return "TRAP_OK";
-		case TRAP_STACK_OVERFLOW:	return "TRAP_STACK_OVERFLOW";
-		case TRAP_STACK_UNDERFLOW:	return "TRAP_STACK_UNDERFLOW";
-		case TRAP_ILLEGAL_INST:		return "TRAP_ILLEGAL_INST";
-		case TRAP_ILLEGAL_INST_ACCESS: 	return "TRAP_ILLEGAL_INST_ACCESS";
-		case TRAP_ILLEGAL_OPERAND:	return "TRAP_ILLEGAL_OPERAND";
-		case TRAP_DIV_BY_ZERO:		return "TRAP_DIV_BY_ZERO";
+		case TRAP_OK:				return "TRAP_OK";
+		case TRAP_STACK_OVERFLOW:		return "TRAP_STACK_OVERFLOW";
+		case TRAP_STACK_UNDERFLOW:		return "TRAP_STACK_UNDERFLOW";
+		case TRAP_ILLEGAL_INST:			return "TRAP_ILLEGAL_INST";
+		case TRAP_ILLEGAL_INST_ACCESS: 		return "TRAP_ILLEGAL_INST_ACCESS";
+		case TRAP_ILLEGAL_MEMORY_ACCESS: 	return "TRAP_ILLEGAL_MEMORY_ACCESS";
+		case TRAP_ILLEGAL_OPERAND:		return "TRAP_ILLEGAL_OPERAND";
+		case TRAP_DIV_BY_ZERO:			return "TRAP_DIV_BY_ZERO";
 		default: UNREACHABLE("NOT EXISTING TRAP");
 	}
 }
@@ -212,6 +228,14 @@ const char *inst_name(Inst_Type type) {
 		case INST_SHR:		return "shr";
 		case INST_SHL:		return "shl";
 		case INST_NOTB:		return "notb";
+		case INST_READ8:	return "read8";
+		case INST_READ16:	return "read16";
+		case INST_READ32:	return "read32";
+		case INST_READ64:	return "read64";
+		case INST_WRITE8:	return "write8";
+		case INST_WRITE16:	return "write16";
+		case INST_WRITE32:	return "write32";
+		case INST_WRITE64:	return "write64";
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -247,6 +271,14 @@ int inst_has_operand(Inst_Type type) {
 		case INST_SHR:    	return 0;
 		case INST_SHL:    	return 0;
 		case INST_NOTB:   	return 0;
+		case INST_READ8:	return 0;
+		case INST_READ16:	return 0;
+		case INST_READ32:	return 0;
+		case INST_READ64:	return 0;
+		case INST_WRITE8:	return 0;
+		case INST_WRITE16:	return 0;
+		case INST_WRITE32:	return 0;
+		case INST_WRITE64:	return 0;
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -403,7 +435,7 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_HALT:
-			evm->halt = 1;
+			evm->halt = true;
 		break;
 
 		case INST_SWAP:
@@ -457,8 +489,75 @@ Trap evm_execute_inst(EVM *evm) {
         		evm->ip += 1;
         	break;
 
-		case EASM_NUMBER_OF_INSTS:
+		case INST_READ8: {
+        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			evm->stack[evm->stack_size - 1].as_u64 = *(uint8_t*)&evm->memory[addr];
+        		evm->ip += 1;
+		} break;
 
+		case INST_READ16: {
+        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 1) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			evm->stack[evm->stack_size - 1].as_u64 = *(uint16_t*)&evm->memory[addr];
+        		evm->ip += 1;
+		} break;
+
+		case INST_READ32: {
+        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 3) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			evm->stack[evm->stack_size - 1].as_u64 = *(uint32_t*)&evm->memory[addr];
+        		evm->ip += 1;
+		} break;
+
+		case INST_READ64: {
+        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 7) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			evm->stack[evm->stack_size - 1].as_u64 = *(uint64_t*)&evm->memory[addr];
+        		evm->ip += 1;
+		} break;
+
+		case INST_WRITE8: {
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			*(uint8_t*)&evm->memory[addr] = (uint8_t)evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 2;
+        		evm->ip += 1;
+		} break;
+
+		case INST_WRITE16: {
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 1) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			*(uint16_t*)&evm->memory[addr] = (uint16_t)evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 2;
+        		evm->ip += 1;
+		} break;
+
+		case INST_WRITE32: {
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 3) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			*(uint32_t*)&evm->memory[addr] = (uint32_t)evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 2;
+        		evm->ip += 1;
+		} break;
+
+		case INST_WRITE64: {
+        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+			if (addr >= EVM_MEMORY_CAPACITY - 7) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			*(uint64_t*)&evm->memory[addr] = (uint64_t)evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 2;
+        		evm->ip += 1;
+		} break;
+
+		case EASM_NUMBER_OF_INSTS:
 		default:
 			return TRAP_ILLEGAL_INST;
 	}
@@ -499,6 +598,14 @@ void evm_dump_stack(FILE *stream, const EVM *evm) {
 	}
 }
 
+void evm_dump_memory(FILE *stream, const EVM *evm) {
+	fprintf(stream, "Memory:\n");
+	for (size_t i = 0; i < EVM_MEMORY_CAPACITY; ++i) {
+		fprintf(stream, "%02X ", evm->memory[i]);
+	}
+	fprintf(stream, "\n");
+}
+
 void evm_push_inst(EVM *evm, Inst inst) {
 	assert(evm->program_size < EVM_PROGRAM_CAPACITY);
 	evm->program[evm->program_size++] = inst;
@@ -529,7 +636,7 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 		exit(1);
 	}
 
-	assert(m % sizeof(evm->program[0]) == 0);
+	assert((size_t)m % sizeof(evm->program[0]) == 0);
 	assert((size_t)m <= EVM_PROGRAM_CAPACITY * sizeof(evm->program[0]));
 
 	if (fseek(f, 0, SEEK_SET) < 0) {
@@ -537,7 +644,7 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 		exit(1);
 	}
 
-	evm->program_size = fread(evm->program, sizeof(evm->program[0]), m / sizeof(evm->program[0]), f);
+	evm->program_size = fread(evm->program, sizeof(evm->program[0]), (size_t)m / sizeof(evm->program[0]), f);
 
 	if (ferror(f)) {
 		fprintf(stderr, "Could not consume file %s: %s\n", file_path, strerror(errno));
@@ -819,7 +926,7 @@ String_View easm_slurp_file(EASM *easm, String_View file_path) {
 		exit(1);
 	}
 
-	char *buffer = easm_alloc(easm, m);
+	char *buffer = easm_alloc(easm, (size_t)m);
 	if (buffer == NULL) {
 		fprintf(stderr, "Could not allocate memory for file: %s\n", strerror(errno));
 		exit(1);
@@ -830,7 +937,7 @@ String_View easm_slurp_file(EASM *easm, String_View file_path) {
 		exit(1);
 	}
 
-	size_t n = fread(buffer, 1, m, f);
+	size_t n = fread(buffer, 1, (size_t)m, f);
 	if (ferror(f)) {
 		fprintf(stderr, "Could not read file %s: %s\n", file_path_cstr, strerror(errno));
 		exit(1);
