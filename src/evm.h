@@ -32,7 +32,7 @@
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
 #define EASM_MAX_INCLUDE_LEVEL 64
-#define EASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
+#define EASM_ARENA_CAPACITY (1000 * 1000 * 1000)
 
 typedef struct {
 	size_t count;
@@ -166,8 +166,8 @@ typedef struct {
 	size_t labels_size;
 	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
 	size_t deferred_operands_size;
-	unsigned char memory[EASM_MEMORY_CAPACITY];
-	size_t memory_size;
+	unsigned char arena[EASM_ARENA_CAPACITY];
+	size_t arena_size;
 } EASM;
 
 void *easm_alloc(EASM *easm, size_t size);
@@ -733,10 +733,10 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 }
 
 void *easm_alloc(EASM *easm, size_t size) {
-	assert(easm->memory_size + size <= EASM_MEMORY_CAPACITY);
+	assert(easm->arena_size + size <= EASM_ARENA_CAPACITY);
 
-	void *result = easm->memory + easm->memory_size;
-	easm->memory_size += size;
+	void *result = easm->arena + easm->arena_size;
+	easm->arena_size += size;
 	return result;
 }
 
