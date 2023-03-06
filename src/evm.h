@@ -21,13 +21,11 @@
         fprintf(stderr, "%s:%d: UNREACHABLE: %s\n", __FILE__, __LINE__, message); \
         exit(1); \
     } while (0)
-#define ARRAY_SIZE(xs) sizeof(xs) / sizeof((xs)[0])
 
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
 #define EVM_NATIVES_CAPACITY 1024
-// #define EVM_MEMORY_CAPACITY (640 * 1000)
-#define EVM_MEMORY_CAPACITY (30)
+#define EVM_MEMORY_CAPACITY (640 * 1000)
 
 #define EASM_LABELS_CAPACITY 1024
 #define EASM_DEFERRED_OPERANDS_CAPACITY 1024
