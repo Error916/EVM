@@ -54,6 +54,22 @@ static Trap evm_print_ptr(EVM *evm) {
 	return TRAP_OK;
 }
 
+static Trap evm_print_memory(EVM *evm) {
+	if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+	Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+	uint64_t count = evm->stack[evm->stack_size - 1].as_u64;
+
+	if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+	for (uint64_t i = 0; i < count; ++i) {
+		printf("%02X ", evm->memory[addr + i]);
+	}
+	printf("\n");
+	evm->stack_size -= 2;
+
+	return TRAP_OK;
+}
+
 int main(int argc, char **argv) {
 	if (argc < 2) {
 		fprintf(stderr, "Usage: ./evmi <input.evm>\n");
@@ -70,13 +86,13 @@ int main(int argc, char **argv) {
 
 	evm_load_program_from_file(&evm, input_file_path);
 
-	// TODO: mechanism to load native function more granuraly
-	evm_push_native(&evm, evm_alloc);	// 0
-	evm_push_native(&evm, evm_free);	// 1
-	evm_push_native(&evm, evm_print_u64);	// 2
-	evm_push_native(&evm, evm_print_i64);	// 3
-	evm_push_native(&evm, evm_print_f64);	// 4
-	evm_push_native(&evm, evm_print_ptr);	// 5
+	evm_push_native(&evm, evm_alloc);		// 0
+	evm_push_native(&evm, evm_free);		// 1
+	evm_push_native(&evm, evm_print_u64);		// 2
+	evm_push_native(&evm, evm_print_i64);		// 3
+	evm_push_native(&evm, evm_print_f64);		// 4
+	evm_push_native(&evm, evm_print_ptr);		// 5
+	evm_push_native(&evm, evm_print_memory);	// 6
 
 	Trap trap = evm_execute_program(&evm , limit);
 

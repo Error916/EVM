@@ -1,0 +1,24 @@
+#include "./examples/natives.hasm"
+#label N 256
+
+	push 0
+loop:
+	dup 0
+	dup 0
+	write8
+
+	push 1
+	plusi
+
+	dup 0
+	push N
+	eq
+	not
+
+	jmp_if loop
+
+	push 0
+	push N
+	native print_memory
+
+	halt
