@@ -165,7 +165,7 @@ void evm_dump_memory(FILE *stream, const EVM *evm);
 void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
 
-#define EVM_FILE_MAGIC 0x4D42
+#define EVM_FILE_MAGIC 0x6D62
 #define EVM_FILE_VERSION 1
 
 PACK(struct Evm_File_Meta {
@@ -882,8 +882,9 @@ void easm_translate_source(EASM *easm, String_View input_file_path, size_t level
 	// First pass
 	while (source.count > 0) {
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
+		line = sv_trim(sv_chop_by_delim(&line, EASM_COMMENT_CHAR));
 		line_number += 1;
-		if (line.count > 0 && *line.data != EASM_COMMENT_CHAR) {
+		if (line.count > 0) {
 			String_View token = sv_trim(sv_chop_by_delim(&line, ' '));
 
 			// Pre-processor
@@ -951,7 +952,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path, size_t level
 
 				// Instraction
 				if (token.count > 0) {
-					String_View operand = sv_trim(sv_chop_by_delim(&line, EASM_COMMENT_CHAR));
+					String_View operand = line;
 
 					Inst_Type inst_type = INST_NOP;
 					if (inst_by_name(token, &inst_type)) {

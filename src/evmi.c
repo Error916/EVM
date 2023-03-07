@@ -61,6 +61,7 @@ static Trap evm_print_memory(EVM *evm) {
 
 	if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
 	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+
 	for (uint64_t i = 0; i < count; ++i) {
 		printf("%02X ", evm->memory[addr + i]);
 	}
