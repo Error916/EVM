@@ -1,7 +1,6 @@
 #define EVM_IMPLEMENTATION
 #include "./evm.h"
 
-EVM evm = { 0 };
 EASM easm = { 0 };
 
 int main(int argc, char **argv) {
@@ -14,8 +13,8 @@ int main(int argc, char **argv) {
 	const char *input_file_path = argv[1];
 	const char *output_file_path = argv[2];
 
-	easm_translate_source(&evm, &easm, cstr_as_sv(input_file_path), 0);
-	evm_save_program_to_file(&evm, output_file_path);
+	easm_translate_source(&easm, cstr_as_sv(input_file_path), 0);
+	easm_save_to_file(&easm, output_file_path);
 
 	return 0;
 }

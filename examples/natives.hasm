@@ -5,3 +5,4 @@
 #label print_f64 4
 #label print_ptr 5
 #label print_memory 6
+#label write 7

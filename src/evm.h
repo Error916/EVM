@@ -10,6 +10,15 @@
 #include <errno.h>
 #include <ctype.h>
 
+// NOTE: Stolen from https://stackoverflow.com/a/3312896
+#if defined(__GNUC__) || defined(__clang__)
+#  define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#elif defined(_MSC_VER)
+#  define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
+#else
+#  error "Packed attributes for struct is not implemented for this compiler. This may result in a program working incorrectly."
+#endif
+
 #define UNUSED(x) (void)(x)
 #define UNIMPLEMENTED(message) \
     do { \
@@ -59,6 +68,11 @@ typedef union {
 } Word;
 static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
 
+Word word_u64(uint64_t u64);
+Word word_i64(int64_t i64);
+Word word_f64(double f64);
+Word word_ptr(void *ptr);
+
 typedef enum {
 	TRAP_OK = 0,
 	TRAP_STACK_OVERFLOW,
@@ -82,6 +96,7 @@ typedef enum {
 	INST_MINUSI,
 	INST_MULTI,
 	INST_DIVI,
+	INST_MODI,
 	INST_PLUSF,
 	INST_MINUSF,
 	INST_MULTF,
@@ -92,8 +107,8 @@ typedef enum {
 	INST_CALL,
 	INST_NATIVE,
 	INST_EQ,
-	INST_HALT,
 	INST_NOT,
+	INST_GEI,
     	INST_GEF,
 	INST_ANDB,
     	INST_ORB,
@@ -109,6 +124,7 @@ typedef enum {
 	INST_WRITE16,
 	INST_WRITE32,
 	INST_WRITE64,
+	INST_HALT,
 	EASM_NUMBER_OF_INSTS,
 } Inst_Type;
 
@@ -147,9 +163,20 @@ void evm_push_native(EVM *evm, Evm_Native native);
 void evm_dump_stack(FILE *stream, const EVM *evm);
 void evm_dump_memory(FILE *stream, const EVM *evm);
 void evm_push_inst(EVM *evm, Inst inst);
-void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
-void evm_save_program_to_file(const EVM *evm, const char *file_path);
+
+#define EVM_FILE_MAGIC 0x4D42
+#define EVM_FILE_VERSION 1
+
+PACK(struct Evm_File_Meta {
+	uint16_t magic;
+	uint16_t version;
+	uint64_t program_size;
+	uint64_t memory_size;
+	uint64_t memory_capacity;
+});
+
+typedef struct Evm_File_Meta Evm_File_Meta;
 
 typedef struct {
 	String_View name;
@@ -164,8 +191,17 @@ typedef struct {
 typedef struct {
 	Label labels[EASM_LABELS_CAPACITY];
 	size_t labels_size;
+
 	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
 	size_t deferred_operands_size;
+
+	Inst program[EVM_PROGRAM_CAPACITY];
+    	uint64_t program_size;
+
+    	uint8_t memory[EVM_MEMORY_CAPACITY];
+    	size_t memory_size;
+    	size_t memory_capacity;
+
 	unsigned char arena[EASM_ARENA_CAPACITY];
 	size_t arena_size;
 } EASM;
@@ -175,12 +211,31 @@ String_View easm_slurp_file(EASM *easm, String_View file_path);
 bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
 bool easm_bind_label(EASM *easm, String_View name, Word word);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
-void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, size_t level);
-bool easm_number_literal_as_word(EASM *easm, String_View sv, Word *output);
+bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
+void easm_save_to_file(EASM *easm, const char *output_file_path);
+Word easm_push_string_to_memory(EASM *easm, String_View sv);
+void easm_translate_source(EASM *easm, String_View input_file_path, size_t level);
+
 
 #endif // EVM_H_
 
 #ifdef EVM_IMPLEMENTATION
+
+Word word_u64(uint64_t u64) {
+	return (Word) { .as_u64 = u64 };
+}
+
+Word word_i64(int64_t i64) {
+	return (Word) { .as_i64 = i64 };
+}
+
+Word word_f64(double f64) {
+	return (Word) { .as_f64 = f64 };
+}
+
+Word word_ptr(void *ptr) {
+	return (Word) { .as_ptr = ptr };
+}
 
 const char *trap_as_cstr(Trap trap) {
 	switch (trap) {
@@ -207,6 +262,7 @@ const char *inst_name(Inst_Type type) {
 		case INST_MINUSI:      	return "minusi";
 		case INST_MULTI:       	return "multi";
 		case INST_DIVI:        	return "divi";
+		case INST_MODI:		return "modi";
 		case INST_PLUSF:       	return "plusf";
 		case INST_MINUSF:      	return "minusf";
 		case INST_MULTF:       	return "multf";
@@ -218,6 +274,7 @@ const char *inst_name(Inst_Type type) {
 		case INST_NATIVE:	return "native";
 		case INST_EQ:          	return "eq";
 		case INST_NOT:		return "not";
+		case INST_GEI:		return "gei";
 		case INST_GEF:		return "gef";
 		case INST_HALT:        	return "halt";
 		case INST_ANDB:		return "andb";
@@ -250,6 +307,7 @@ int inst_has_operand(Inst_Type type) {
 		case INST_MINUSI:      	return 0;
 		case INST_MULTI:       	return 0;
 		case INST_DIVI:        	return 0;
+		case INST_MODI:		return 0;
 		case INST_PLUSF:       	return 0;
 		case INST_MINUSF:      	return 0;
 		case INST_MULTF:       	return 0;
@@ -261,6 +319,7 @@ int inst_has_operand(Inst_Type type) {
 		case INST_NATIVE:	return 1;
 		case INST_EQ:          	return 0;
 		case INST_NOT:		return 0;
+		case INST_GEI:		return 0;
 		case INST_GEF:		return 0;
 		case INST_HALT:        	return 0;
 		case INST_ANDB:   	return 0;
@@ -351,6 +410,14 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
+		case INST_MODI:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
+			evm->stack[evm->stack_size - 2].as_u64 %= evm->stack[evm->stack_size - 1].as_u64;
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
 		case INST_PLUSF:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_f64 += evm->stack[evm->stack_size - 1].as_f64;
@@ -421,6 +488,13 @@ Trap evm_execute_inst(EVM *evm) {
 		case INST_EQ:
 			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 == evm->stack[evm->stack_size - 2].as_u64);
+			evm->stack_size -= 1;
+			evm->ip += 1;
+		break;
+
+		case INST_GEI:
+			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 2].as_u64 >= evm->stack[evm->stack_size - 1].as_u64);
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
@@ -609,60 +683,57 @@ void evm_push_inst(EVM *evm, Inst inst) {
 	evm->program[evm->program_size++] = inst;
 }
 
-void evm_load_program_from_memory(EVM *evm, Inst *program, size_t program_size) {
-	assert(program_size < EVM_PROGRAM_CAPACITY);
-	for (size_t i = 0; i < program_size; ++i) {
-		evm_push_inst(evm, *(program +i));
-	}
-}
-
 void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	FILE *f = fopen(file_path, "rb");
 	if (f == NULL) {
-		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "ERROR: Could not open file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
-	if (fseek(f, 0, SEEK_END) < 0) {
-		fprintf(stderr, "Could not set position at end of file %s: %s\n", file_path, strerror(errno));
+	Evm_File_Meta meta = { 0 };
+	size_t n = fread(&meta, sizeof(meta), 1, f);
+	if (n < 1) {
+		fprintf(stderr, "ERROR: Could not read meta data form file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
-	long m = ftell(f);
-	if (m < 0) {
-		fprintf(stderr, "Could not determinate length of file %s: %s\n", file_path, strerror(errno));
+	if (meta.magic != EVM_FILE_MAGIC) {
+        	fprintf(stderr, "ERROR: %s does not appear to be a valid EVM file. Unexpected magic %04X. Expected %04X.\n", file_path, meta.magic, EVM_FILE_MAGIC);
 		exit(1);
 	}
 
-	assert((size_t)m % sizeof(evm->program[0]) == 0);
-	assert((size_t)m <= EVM_PROGRAM_CAPACITY * sizeof(evm->program[0]));
+	if (meta.version != EVM_FILE_VERSION) {
+        	fprintf(stderr, "ERROR: %s: unsupported version of EVM file %d. Expected version %d.\n", file_path, meta.version, EVM_FILE_VERSION);
+        	exit(1);
+    	}
 
-	if (fseek(f, 0, SEEK_SET) < 0) {
-		fprintf(stderr, "Could not rewind file %s: %s\n", file_path, strerror(errno));
+	if (meta.program_size > EVM_PROGRAM_CAPACITY) {
+        	fprintf(stderr, "ERROR: %s: program section is too big. The file contains %lu program instruction. But the capacity is %lu\n", file_path, meta.program_size, (uint64_t) EVM_PROGRAM_CAPACITY);
 		exit(1);
 	}
 
-	evm->program_size = fread(evm->program, sizeof(evm->program[0]), (size_t)m / sizeof(evm->program[0]), f);
+	if (meta.memory_capacity > EVM_MEMORY_CAPACITY) {
+        	fprintf(stderr, "ERROR: %s: memory section is too big. The file wants %lu bytes. But the capacity is %lu bytes\n", file_path, meta.memory_capacity, (uint64_t) EVM_MEMORY_CAPACITY);
+        	exit(1);
+    	}
 
-	if (ferror(f)) {
-		fprintf(stderr, "Could not consume file %s: %s\n", file_path, strerror(errno));
-		exit(1);
-	}
+	if (meta.memory_size > meta.memory_capacity) {
+        fprintf(stderr,
+                "ERROR: %s: memory size %lu is greater than declared memory capacity %lu\n", file_path, meta.memory_size, meta.memory_capacity);
+        	exit(1);
+    	}
 
-	fclose(f);
-}
+    	evm->program_size = fread(evm->program, sizeof(evm->program[0]), meta.program_size, f);
 
-void evm_save_program_to_file(const EVM *evm, const char *file_path) {
-	FILE *f = fopen(file_path, "wb");
-	if (f == NULL) {
-		fprintf(stderr, "Could not open file %s: %s\n", file_path, strerror(errno));
-		exit(1);
-	}
+    	if (evm->program_size != meta.program_size) {
+        	fprintf(stderr, "ERROR: %s: read %zd program instructions, but expected %lu\n", file_path, evm->program_size, meta.program_size);
+        	exit(1);
+    	}
 
-	fwrite(evm->program, sizeof(evm->program[0]), evm->program_size, f);
+    	n = fread(evm->memory, sizeof(evm->memory[0]), meta.memory_size, f);
 
-	if (ferror(f)) {
-		fprintf(stderr, "Could not write to file %s: %s\n", file_path, strerror(errno));
+    	if (n != meta.memory_size) {
+        	fprintf(stderr, "ERROR: %s: read %zd bytes of memory section, but expected %lu bytes.\n", file_path, n, meta.memory_size);
 		exit(1);
 	}
 
@@ -767,15 +838,49 @@ void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View label) {
 	};
 }
 
-void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, size_t level) {
+void easm_save_to_file(EASM *easm, const char *file_path) {
+	FILE *f = fopen(file_path, "wb");
+    	if (f == NULL) {
+        	fprintf(stderr, "ERROR: Could not open file `%s`: %s\n", file_path, strerror(errno));
+        	exit(1);
+    	}
+
+	Evm_File_Meta meta = {
+		.magic = EVM_FILE_MAGIC,
+		.version = EVM_FILE_VERSION,
+		.program_size = easm->program_size,
+		.memory_size = easm->memory_size,
+		.memory_capacity = easm->memory_capacity,
+	};
+
+	fwrite(&meta, sizeof(meta), 1, f);
+    	if (ferror(f)) {
+        	fprintf(stderr, "ERROR: Could not write to file `%s`: %s\n", file_path, strerror(errno));
+        	exit(1);
+    	}
+
+    	fwrite(easm->program, sizeof(easm->program[0]), easm->program_size, f);
+    	if (ferror(f)) {
+        	fprintf(stderr, "ERROR: Could not write to file `%s`: %s\n", file_path, strerror(errno));
+        	exit(1);
+    	}
+
+    	fwrite(easm->memory, sizeof(easm->memory[0]), easm->memory_size, f);
+    	if (ferror(f)) {
+        	fprintf(stderr, "ERROR: Could not write to file `%s`: %s\n", file_path, strerror(errno));
+        	exit(1);
+    	}
+
+    	fclose(f);
+}
+
+void easm_translate_source(EASM *easm, String_View input_file_path, size_t level) {
 	String_View original_source = easm_slurp_file(easm, input_file_path);
 	String_View source = original_source;
-	evm->program_size = 0;
 	size_t line_number = 0;
 
 	// First pass
 	while (source.count > 0) {
-		assert(evm->program_size < EVM_PROGRAM_CAPACITY);
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
 		line_number += 1;
 		if (line.count > 0 && *line.data != EASM_COMMENT_CHAR) {
@@ -790,9 +895,9 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 					String_View label = sv_chop_by_delim(&line, ' ');
 					if (label.count > 0) {
 						line = sv_trim(line);
-						String_View value = sv_chop_by_delim(&line, ' ');
+						String_View value = line;
 						Word word = { 0 };
-						if (!easm_number_literal_as_word(easm, value, &word)) {
+						if (!easm_translate_literal(easm, value, &word)) {
 							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(value), line_number);
 							exit(1);
 						}
@@ -817,7 +922,7 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 								exit(1);
 							}
 
-							easm_translate_source(evm, easm, line, level + 1);
+							easm_translate_source(easm, line, level + 1);
 						} else {
 							fprintf(stderr, "ERROR: path must be surrounded by quotation marks on line %lu\n", line_number);
 							exit(1);
@@ -837,7 +942,7 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 						.count = token.count - 1,
 						.data = token.data,
 					};
-					if (!easm_bind_label(easm, label, (Word) { .as_u64 = evm->program_size })) {
+					if (!easm_bind_label(easm, label, word_u64(easm->program_size))) {
 						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", SV_FORMAT(label), line_number);
 						exit(1);
 					}
@@ -850,17 +955,18 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 
 					Inst_Type inst_type = INST_NOP;
 					if (inst_by_name(token, &inst_type)) {
-						evm->program[evm->program_size].type = inst_type;
+						assert(easm->program_size < EVM_PROGRAM_CAPACITY);
+						easm->program[easm->program_size].type = inst_type;
 						if (inst_has_operand(inst_type)) {
 							if (operand.count == 0) {
 								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", SV_FORMAT(token), line_number);
 								exit(1);
 							}
-							if (!easm_number_literal_as_word(easm, operand, &evm->program[evm->program_size].operand)) {
-								easm_push_deferred_operand(easm, evm->program_size, operand);
+							if (!easm_translate_literal(easm, operand, &easm->program[easm->program_size].operand)) {
+								easm_push_deferred_operand(easm, easm->program_size, operand);
 							}
 						}
-						evm->program_size += 1;
+						easm->program_size += 1;
 					} else {
 						fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
 						exit(1);
@@ -873,27 +979,48 @@ void easm_translate_source(EVM *evm, EASM *easm, String_View input_file_path, si
 	// Second pass
 	for (size_t i = 0; i < easm->deferred_operands_size; ++i) {
 		String_View label = easm->deferred_operands[i].label;
-		if (!easm_resolve_label(easm, label, &evm->program[easm->deferred_operands[i].addr].operand)) {
+		if (!easm_resolve_label(easm, label, &easm->program[easm->deferred_operands[i].addr].operand)) {
 			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
 			exit(1);
 		}
 	}
 }
 
-bool easm_number_literal_as_word(EASM *easm, String_View sv, Word *output) {
-	char *cstr = easm_alloc(easm, sv.count + 1);
-	memcpy(cstr, sv.data, sv.count);
-	cstr[sv.count] = '\0';
+Word easm_push_string_to_memory(EASM *easm, String_View sv) {
+    assert(easm->memory_size + sv.count <= EVM_MEMORY_CAPACITY);
 
-	char *endptr = 0;
-	Word result = { 0 };
-	result.as_u64 = strtoull(cstr, &endptr, 10);
-	if ((size_t) (endptr - cstr) != sv.count) {
-		result.as_f64 = strtod(cstr, &endptr);
-		if ((size_t) (endptr - cstr) != sv.count) return false;
+    Word result = word_u64(easm->memory_size);
+    memcpy(easm->memory + easm->memory_size, sv.data, sv.count);
+    easm->memory_size += sv.count;
+
+    if (easm->memory_size > easm->memory_capacity) {
+        easm->memory_capacity = easm->memory_size;
+    }
+
+    return result;
+}
+
+bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
+	if (sv.count >= 2 && *sv.data == '"' && sv.data[sv.count - 1] == '"') {
+		// TODO: string literals don't support escaped characters
+        	sv.data += 1;
+        	sv.count -= 2;
+        	*output = easm_push_string_to_memory(easm, sv);
+	} else {
+		char *cstr = easm_alloc(easm, sv.count + 1);
+		memcpy(cstr, sv.data, sv.count);
+		cstr[sv.count] = '\0';
+
+		char *endptr = 0;
+		Word result = { 0 };
+		result.as_u64 = strtoull(cstr, &endptr, 10);
+		if ((size_t) (endptr - cstr) != sv.count) {
+			result.as_f64 = strtod(cstr, &endptr);
+			if ((size_t) (endptr - cstr) != sv.count) return false;
+		}
+
+		*output = result;
 	}
-
-	*output = result;
 	return true;
 }
 

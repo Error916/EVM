@@ -70,6 +70,20 @@ static Trap evm_print_memory(EVM *evm) {
 	return TRAP_OK;
 }
 
+static Trap evm_write(EVM *evm) {
+	if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+	Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
+	uint64_t count = evm->stack[evm->stack_size - 1].as_u64;
+
+	if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+
+	fwrite(&evm->memory[addr], sizeof(evm->memory[0]), count, stdout);
+	evm->stack_size -= 2;
+
+	return TRAP_OK;
+}
+
 int main(int argc, char **argv) {
 	if (argc < 2) {
 		fprintf(stderr, "Usage: ./evmi <input.evm>\n");
@@ -93,6 +107,7 @@ int main(int argc, char **argv) {
 	evm_push_native(&evm, evm_print_f64);		// 4
 	evm_push_native(&evm, evm_print_ptr);		// 5
 	evm_push_native(&evm, evm_print_memory);	// 6
+	evm_push_native(&evm, evm_write);		// 7
 
 	Trap trap = evm_execute_program(&evm , limit);
 
