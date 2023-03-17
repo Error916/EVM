@@ -52,6 +52,7 @@ typedef struct {
 
 String_View cstr_as_sv(const char *cstr);
 bool sv_eq(String_View a, String_View b);
+int sv_to_int(String_View sv);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
@@ -165,7 +166,7 @@ void evm_dump_memory(FILE *stream, const EVM *evm);
 void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
 
-#define EVM_FILE_MAGIC 0x6D62
+#define EVM_FILE_MAGIC 0x6D65
 #define EVM_FILE_VERSION 1
 
 PACK(struct Evm_File_Meta {
@@ -750,6 +751,16 @@ String_View cstr_as_sv(const char *cstr) {
 bool sv_eq(String_View a, String_View b) {
 	if (a.count != b.count) return false;
 	else return (memcmp(a.data, b.data, a.count) == 0);
+}
+
+int sv_to_int(String_View sv) {
+	int result = 0;
+
+	for (size_t i = 0; i < sv.count && isdigit(sv.data[i]); ++i) {
+        	result = result * 10 + sv.data[i] - '0';
+	}
+
+	return result;
 }
 
 String_View sv_trim_left(String_View sv) {
