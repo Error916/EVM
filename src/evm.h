@@ -228,6 +228,8 @@ typedef struct {
     	size_t memory_capacity;
 
 	Arena arena;
+
+	size_t include_level;
 } EASM;
 
 bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
@@ -236,7 +238,7 @@ void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
 void easm_save_to_file(EASM *easm, const char *output_file_path);
 Word easm_push_string_to_memory(EASM *easm, String_View sv);
-void easm_translate_source(EASM *easm, String_View input_file_path, size_t level);
+void easm_translate_source(EASM *easm, String_View input_file_path);
 
 void evm_load_standard_natives(EVM *evm);
 Trap evm_alloc(EVM *evm);
@@ -958,7 +960,7 @@ void easm_save_to_file(EASM *easm, const char *file_path) {
     	fclose(f);
 }
 
-void easm_translate_source(EASM *easm, String_View input_file_path, size_t level) {
+void easm_translate_source(EASM *easm, String_View input_file_path) {
 	String_View original_source = arena_slurp_file(&easm->arena, input_file_path);
 	String_View source = original_source;
 	size_t line_number = 0;
@@ -1002,12 +1004,14 @@ void easm_translate_source(EASM *easm, String_View input_file_path, size_t level
 							line.count -= 2;
 							line.data += 1;
 
-							if (level + 1 >= EASM_MAX_INCLUDE_LEVEL) {
+							if (easm->include_level + 1 >= EASM_MAX_INCLUDE_LEVEL) {
 								fprintf(stderr, "ERROR: exceeded maximum include level\n");
 								exit(1);
 							}
 
-							easm_translate_source(easm, line, level + 1);
+							easm->include_level += 1;
+							easm_translate_source(easm, line);
+							easm->include_level -= 1;
 						} else {
 							fprintf(stderr, "ERROR: path must be surrounded by quotation marks on line %lu\n", line_number);
 							exit(1);

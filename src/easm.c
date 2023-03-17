@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
 
 	const char *output_file_path = shift(&argc, &argv);
 
-	easm_translate_source(&easm, cstr_as_sv(input_file_path), 0);
+	easm_translate_source(&easm, cstr_as_sv(input_file_path));
 	easm_save_to_file(&easm, output_file_path);
 
 	if (have_symbol_table) {
