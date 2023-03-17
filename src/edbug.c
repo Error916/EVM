@@ -27,6 +27,7 @@ Edb_Err edb_state_init(Edb_State *state, const char *executable) {
 
 	state->code_file_name = cstr_as_sv(executable);
 	evm_load_program_from_file(&state->evm, executable);
+	evm_load_standard_natives(&state->evm);
 
 	char buf[PATH_MAX];
     	memcpy(buf, executable, strlen(executable));
