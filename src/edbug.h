@@ -32,6 +32,6 @@ Edb_Err edb_parse_label_or_addr(Edb_State *st, const char *in, Inst_Addr *out);
 void edb_print_instr(FILE *f, Inst *i);
 void edb_add_breakpoint(Edb_State *state, Inst_Addr addr);
 void edb_delete_breakpoint(Edb_State *state, Inst_Addr addr);
-Edb_Err edb_fault(Edb_State *state, Trap trap);
+Edb_Err edb_fault(Edb_State *state, Err err);
 
 #endif // EDB_H

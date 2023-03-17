@@ -76,17 +76,17 @@ Word word_f64(double f64);
 Word word_ptr(void *ptr);
 
 typedef enum {
-	TRAP_OK = 0,
-	TRAP_STACK_OVERFLOW,
-	TRAP_STACK_UNDERFLOW,
-	TRAP_ILLEGAL_INST,
-	TRAP_ILLEGAL_INST_ACCESS,
-	TRAP_ILLEGAL_MEMORY_ACCESS,
-	TRAP_ILLEGAL_OPERAND,
-	TRAP_DIV_BY_ZERO,
-} Trap;
+	ERR_OK = 0,
+	ERR_STACK_OVERFLOW,
+	ERR_STACK_UNDERFLOW,
+	ERR_ILLEGAL_INST,
+	ERR_ILLEGAL_INST_ACCESS,
+	ERR_ILLEGAL_MEMORY_ACCESS,
+	ERR_ILLEGAL_OPERAND,
+	ERR_DIV_BY_ZERO,
+} Err;
 
-const char *trap_as_cstr(Trap trap);
+const char *err_as_cstr(Err err);
 
 typedef enum {
 	INST_NOP = 0,
@@ -154,7 +154,7 @@ bool inst_by_name(String_View name, Inst_Type *type);
 
 typedef struct EVM EVM;
 
-typedef Trap (*Evm_Native)(EVM *);
+typedef Err (*Evm_Native)(EVM *);
 
 struct EVM {
 	Word stack[EVM_STACK_CAPACITY];
@@ -172,8 +172,8 @@ struct EVM {
 	bool halt;
 };
 
-Trap evm_execute_inst(EVM *evm);
-Trap evm_execute_program(EVM *evm, int limit);
+Err evm_execute_inst(EVM *evm);
+Err evm_execute_program(EVM *evm, int limit);
 void evm_push_native(EVM *evm, Evm_Native native);
 void evm_dump_stack(FILE *stream, const EVM *evm);
 void evm_dump_memory(FILE *stream, const EVM *evm);
@@ -241,14 +241,14 @@ Word easm_push_string_to_memory(EASM *easm, String_View sv);
 void easm_translate_source(EASM *easm, String_View input_file_path);
 
 void evm_load_standard_natives(EVM *evm);
-Trap evm_alloc(EVM *evm);
-Trap evm_free(EVM *evm);
-Trap evm_print_u64(EVM *evm);
-Trap evm_print_i64(EVM *evm);
-Trap evm_print_f64(EVM *evm);
-Trap evm_print_ptr(EVM *evm);
-Trap evm_print_memory(EVM *evm);
-Trap evm_write(EVM *evm);
+Err evm_alloc(EVM *evm);
+Err evm_free(EVM *evm);
+Err evm_print_u64(EVM *evm);
+Err evm_print_i64(EVM *evm);
+Err evm_print_f64(EVM *evm);
+Err evm_print_ptr(EVM *evm);
+Err evm_print_memory(EVM *evm);
+Err evm_write(EVM *evm);
 
 #endif // EVM_H_
 
@@ -270,17 +270,17 @@ Word word_ptr(void *ptr) {
 	return (Word) { .as_ptr = ptr };
 }
 
-const char *trap_as_cstr(Trap trap) {
-	switch (trap) {
-		case TRAP_OK:				return "TRAP_OK";
-		case TRAP_STACK_OVERFLOW:		return "TRAP_STACK_OVERFLOW";
-		case TRAP_STACK_UNDERFLOW:		return "TRAP_STACK_UNDERFLOW";
-		case TRAP_ILLEGAL_INST:			return "TRAP_ILLEGAL_INST";
-		case TRAP_ILLEGAL_INST_ACCESS: 		return "TRAP_ILLEGAL_INST_ACCESS";
-		case TRAP_ILLEGAL_MEMORY_ACCESS: 	return "TRAP_ILLEGAL_MEMORY_ACCESS";
-		case TRAP_ILLEGAL_OPERAND:		return "TRAP_ILLEGAL_OPERAND";
-		case TRAP_DIV_BY_ZERO:			return "TRAP_DIV_BY_ZERO";
-		default: UNREACHABLE("NOT EXISTING TRAP");
+const char *err_as_cstr(Err err) {
+	switch (err) {
+		case ERR_OK:				return "ERR_OK";
+		case ERR_STACK_OVERFLOW:		return "ERR_STACK_OVERFLOW";
+		case ERR_STACK_UNDERFLOW:		return "ERR_STACK_UNDERFLOW";
+		case ERR_ILLEGAL_INST:			return "ERR_ILLEGAL_INST";
+		case ERR_ILLEGAL_INST_ACCESS: 		return "ERR_ILLEGAL_INST_ACCESS";
+		case ERR_ILLEGAL_MEMORY_ACCESS: 	return "ERR_ILLEGAL_MEMORY_ACCESS";
+		case ERR_ILLEGAL_OPERAND:		return "ERR_ILLEGAL_OPERAND";
+		case ERR_DIV_BY_ZERO:			return "ERR_DIV_BY_ZERO";
+		default: UNREACHABLE("NOT EXISTING ERR");
 	}
 }
 
@@ -412,7 +412,7 @@ bool inst_by_name(String_View name, Inst_Type *type) {
 
 #define BINARY_OP(evm, in, out, op)                                     \
     	do {                                                            \
-        	if ((evm)->stack_size < 2) return TRAP_STACK_UNDERFLOW;	\
+        	if ((evm)->stack_size < 2) return ERR_STACK_UNDERFLOW;	\
         	(evm)->stack[(evm)->stack_size - 2].as_##out = (evm)->stack[(evm)->stack_size - 2].as_##in op (evm)->stack[(evm)->stack_size - 1].as_##in; \
         	(evm)->stack_size -= 1;                                	\
         	(evm)->ip += 1;                                         \
@@ -420,14 +420,13 @@ bool inst_by_name(String_View name, Inst_Type *type) {
 
 #define CAST_OP(evm, src, dst, cast)             			\
 	do {                                        			\
-        	if ((evm)->stack_size < 1) return TRAP_STACK_UNDERFLOW;	\
+        	if ((evm)->stack_size < 1) return ERR_STACK_UNDERFLOW;	\
         	(evm)->stack[(evm)->stack_size - 1].as_##dst = cast (evm)->stack[(evm)->stack_size - 1].as_##src; \
-                                                                        \
-        	(evm)->ip += 1;                                          \
+        	(evm)->ip += 1;                                         \
     	} while (false)
 
-Trap evm_execute_inst(EVM *evm) {
-	if(evm->ip >= evm->program_size) return TRAP_ILLEGAL_INST_ACCESS;
+Err evm_execute_inst(EVM *evm) {
+	if(evm->ip >= evm->program_size) return ERR_ILLEGAL_INST_ACCESS;
 
 	Inst inst = evm->program[evm->ip];
 
@@ -437,20 +436,20 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_PUSH:
-			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
+			if (evm->stack_size > EVM_STACK_CAPACITY) return ERR_STACK_OVERFLOW;
 			evm->stack[evm->stack_size++] = inst.operand;
 			evm->ip += 1;
 		break;
 
 		case INST_DROP:
-			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			evm->stack_size -= 1;
 			evm->ip += 1;
 		break;
 
 		case INST_DUP:
-			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
-			if (evm->stack_size - inst.operand.as_u64 <= 0) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack_size > EVM_STACK_CAPACITY) return ERR_STACK_OVERFLOW;
+			if (evm->stack_size - inst.operand.as_u64 <= 0) return ERR_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size] = evm->stack[evm->stack_size - 1 - inst.operand.as_u64];
 			evm->stack_size += 1;
 			evm->ip += 1;
@@ -469,12 +468,12 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_DIVI:
-			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
+			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return ERR_DIV_BY_ZERO;
 			BINARY_OP(evm, u64, u64, /);
 		break;
 
 		case INST_MODI:
-			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
+			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return ERR_DIV_BY_ZERO;
 			BINARY_OP(evm, u64, u64, %);
 		break;
 
@@ -499,7 +498,7 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_JMP_IF:
-			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			if (evm->stack[evm->stack_size - 1].as_u64) {
 				evm->ip = inst.operand.as_u64;
 			} else {
@@ -509,26 +508,26 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_RET:
-			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			evm->ip = evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 1;
 		break;
 
 		case INST_CALL:
-			if (evm->stack_size > EVM_STACK_CAPACITY) return TRAP_STACK_OVERFLOW;
+			if (evm->stack_size > EVM_STACK_CAPACITY) return ERR_STACK_OVERFLOW;
 			evm->stack[evm->stack_size++].as_u64 = evm->ip + 1;
 			evm->ip = inst.operand.as_u64;
 		break;
 
 		case INST_NATIVE:
-			if (inst.operand.as_u64 > evm->natives_size) return TRAP_ILLEGAL_OPERAND;
-			const Trap trap = evm->natives[inst.operand.as_u64](evm);
-			if (trap != TRAP_OK) return trap;
+			if (inst.operand.as_u64 > evm->natives_size) return ERR_ILLEGAL_OPERAND;
+			const Err err = evm->natives[inst.operand.as_u64](evm);
+			if (err != ERR_OK) return err;
 			evm->ip += 1;
 		break;
 
 		case INST_NOT:
-			if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+			if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			evm->stack[evm->stack_size - 1].as_u64 = !evm->stack[evm->stack_size - 1].as_u64;
 			evm->ip += 1;
 		break;
@@ -586,7 +585,7 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_SWAP:
-			if (inst.operand.as_u64 >= evm->stack_size) return TRAP_STACK_UNDERFLOW;
+			if (inst.operand.as_u64 >= evm->stack_size) return ERR_STACK_UNDERFLOW;
 			const uint64_t a = evm->stack_size - 1;
 			const uint64_t b = evm->stack_size - 1 - inst.operand.as_u64;
 			Word t = evm->stack[a];
@@ -616,74 +615,74 @@ Trap evm_execute_inst(EVM *evm) {
         	break;
 
     		case INST_NOTB:
-        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
         		evm->stack[evm->stack_size - 1].as_u64 = ~evm->stack[evm->stack_size - 1].as_u64;
         		evm->ip += 1;
         	break;
 
 		case INST_READ8: {
-        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
 			evm->stack[evm->stack_size - 1].as_u64 = *(uint8_t*)&evm->memory[addr];
         		evm->ip += 1;
 		} break;
 
 		case INST_READ16: {
-        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 1) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 1) return ERR_ILLEGAL_MEMORY_ACCESS;
 			evm->stack[evm->stack_size - 1].as_u64 = *(uint16_t*)&evm->memory[addr];
         		evm->ip += 1;
 		} break;
 
 		case INST_READ32: {
-        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 3) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 3) return ERR_ILLEGAL_MEMORY_ACCESS;
 			evm->stack[evm->stack_size - 1].as_u64 = *(uint32_t*)&evm->memory[addr];
         		evm->ip += 1;
 		} break;
 
 		case INST_READ64: {
-        		if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 1].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 7) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 7) return ERR_ILLEGAL_MEMORY_ACCESS;
 			evm->stack[evm->stack_size - 1].as_u64 = *(uint64_t*)&evm->memory[addr];
         		evm->ip += 1;
 		} break;
 
 		case INST_WRITE8: {
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
 			*(uint8_t*)&evm->memory[addr] = (uint8_t)evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 2;
         		evm->ip += 1;
 		} break;
 
 		case INST_WRITE16: {
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 1) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 1) return ERR_ILLEGAL_MEMORY_ACCESS;
 			*(uint16_t*)&evm->memory[addr] = (uint16_t)evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 2;
         		evm->ip += 1;
 		} break;
 
 		case INST_WRITE32: {
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 3) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 3) return ERR_ILLEGAL_MEMORY_ACCESS;
 			*(uint32_t*)&evm->memory[addr] = (uint32_t)evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 2;
         		evm->ip += 1;
 		} break;
 
 		case INST_WRITE64: {
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+        		if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 			const Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
-			if (addr >= EVM_MEMORY_CAPACITY - 7) return TRAP_ILLEGAL_MEMORY_ACCESS;
+			if (addr >= EVM_MEMORY_CAPACITY - 7) return ERR_ILLEGAL_MEMORY_ACCESS;
 			*(uint64_t*)&evm->memory[addr] = (uint64_t)evm->stack[evm->stack_size - 1].as_u64;
 			evm->stack_size -= 2;
         		evm->ip += 1;
@@ -707,23 +706,23 @@ Trap evm_execute_inst(EVM *evm) {
 
     		case EASM_NUMBER_OF_INSTS:
 		default:
-			return TRAP_ILLEGAL_INST;
+			return ERR_ILLEGAL_INST;
 	}
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_execute_program(EVM *evm, int limit) {
+Err evm_execute_program(EVM *evm, int limit) {
 	while (limit != 0 && !evm->halt) {
-		Trap trap = evm_execute_inst(evm);
-		if (trap != TRAP_OK) {
-			return trap;
+		Err err = evm_execute_inst(evm);
+		if (err != ERR_OK) {
+			return err;
 		}
 
 		if (limit > 0) --limit;
 	}
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
 void evm_push_native(EVM *evm, Evm_Native native) {
@@ -1188,66 +1187,66 @@ void evm_load_standard_natives(EVM *evm) {
 	evm_push_native(evm, evm_write);	// 7
 }
 
-Trap evm_alloc(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_alloc(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	evm->stack[evm->stack_size - 1].as_ptr = malloc(evm->stack[evm->stack_size].as_u64);
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_free(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_free(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	free(evm->stack[evm->stack_size].as_ptr);
 	evm->stack_size -= 1;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_print_u64(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_print_u64(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	printf("%lu\n", evm->stack[evm->stack_size - 1].as_u64);
 	evm->stack_size -= 1;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_print_i64(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_print_i64(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	printf("%ld\n", evm->stack[evm->stack_size - 1].as_i64);
 	evm->stack_size -= 1;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_print_f64(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_print_f64(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	printf("%lf\n", evm->stack[evm->stack_size - 1].as_f64);
 	evm->stack_size -= 1;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_print_ptr(EVM *evm) {
-	if (evm->stack_size < 1) return TRAP_STACK_UNDERFLOW;
+Err evm_print_ptr(EVM *evm) {
+	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	printf("%p\n", evm->stack[evm->stack_size - 1].as_ptr);
 	evm->stack_size -= 1;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_print_memory(EVM *evm) {
-	if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+Err evm_print_memory(EVM *evm) {
+	if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 	Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
 	uint64_t count = evm->stack[evm->stack_size - 1].as_u64;
 
-	if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
-	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+	if (addr >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
+	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
 
 	for (uint64_t i = 0; i < count; ++i) {
 		printf("%02X ", evm->memory[addr + i]);
@@ -1255,21 +1254,21 @@ Trap evm_print_memory(EVM *evm) {
 	printf("\n");
 	evm->stack_size -= 2;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
-Trap evm_write(EVM *evm) {
-	if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
+Err evm_write(EVM *evm) {
+	if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
 	Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
 	uint64_t count = evm->stack[evm->stack_size - 1].as_u64;
 
-	if (addr >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
-	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return TRAP_ILLEGAL_MEMORY_ACCESS;
+	if (addr >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
+	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
 
 	fwrite(&evm->memory[addr], sizeof(evm->memory[0]), count, stdout);
 	evm->stack_size -= 2;
 
-	return TRAP_OK;
+	return ERR_OK;
 }
 
 #endif //EVM_IMPLEMENTATION

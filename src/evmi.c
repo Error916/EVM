@@ -18,10 +18,10 @@ int main(int argc, char **argv) {
 	evm_load_program_from_file(&evm, input_file_path);
 	evm_load_standard_natives(&evm);
 
-	Trap trap = evm_execute_program(&evm , limit);
+	Err err = evm_execute_program(&evm , limit);
 
-	if (trap != TRAP_OK) {
-		fprintf(stderr, "Trap activated: %s\n", trap_as_cstr(trap));
+	if (err != ERR_OK) {
+		fprintf(stderr, "Trap activated: %s\n", err_as_cstr(err));
 		return 1;
 	}
 

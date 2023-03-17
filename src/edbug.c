@@ -48,11 +48,11 @@ Edb_Err edb_step_instr(Edb_State *state) {
         	return EDB_OK;
     	}
 
-    	Trap trap = evm_execute_inst(&state->evm);
-    	if (!trap)
+    	Err err = evm_execute_inst(&state->evm);
+    	if (!err)
         	return EDB_OK;
     	else
-        	return edb_fault(state, trap);
+        	return edb_fault(state, err);
 }
 
 Edb_Err edb_continue(Edb_State *state) {
@@ -78,8 +78,8 @@ Edb_Err edb_continue(Edb_State *state) {
 
         	bp->is_broken = 0;
 
-        	Trap trap = evm_execute_inst(&state->evm);
-        	if (trap) return edb_fault(state, trap);
+        	Err err = evm_execute_inst(&state->evm);
+        	if (err) return edb_fault(state, err);
     	} while (!state->evm.halt);
 
     	printf("Program halted.\n");
@@ -167,10 +167,10 @@ void edb_delete_breakpoint(Edb_State *state, Inst_Addr addr) {
     	state->breakpoints[addr].is_enabled = 0;
 }
 
-Edb_Err edb_fault(Edb_State *state, Trap trap) {
+Edb_Err edb_fault(Edb_State *state, Err err) {
 	assert(state);
 
-    	fprintf(stderr, "%s at %lu (INSTR: ", trap_as_cstr(trap), state->evm.ip);
+    	fprintf(stderr, "%s at %lu (INSTR: ", err_as_cstr(err), state->evm.ip);
     	edb_print_instr(stderr, &state->evm.program[state->evm.ip]);
     	fprintf(stderr, ")\n");
     	state->evm.halt = 1;
