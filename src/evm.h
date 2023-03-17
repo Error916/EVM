@@ -67,7 +67,7 @@ typedef union {
 	double as_f64;
 	void *as_ptr;
 } Word;
-static_assert(sizeof(Word) == 8, "The BM's Word is expected to be 64 bits");
+static_assert(sizeof(Word) == 8, "The EVM's Word is expected to be 64 bits");
 
 Word word_u64(uint64_t u64);
 Word word_i64(int64_t i64);
@@ -107,16 +107,25 @@ typedef enum {
 	INST_RET,
 	INST_CALL,
 	INST_NATIVE,
-	INST_EQ,
 	INST_NOT,
+	INST_EQI,
 	INST_GEI,
-    	INST_GEF,
+	INST_GTI,
+	INST_LEI,
+	INST_LTI,
+	INST_NEI,
+	INST_EQF,
+	INST_GEF,
+	INST_GTF,
+	INST_LEF,
+	INST_LTF,
+	INST_NEF,
 	INST_ANDB,
-    	INST_ORB,
-   	INST_XOR,
-  	INST_SHR,
-    	INST_SHL,
-    	INST_NOTB,
+	INST_ORB,
+	INST_XOR,
+	INST_SHR,
+	INST_SHL,
+	INST_NOTB,
 	INST_READ8,
 	INST_READ16,
 	INST_READ32,
@@ -125,6 +134,10 @@ typedef enum {
 	INST_WRITE16,
 	INST_WRITE32,
 	INST_WRITE64,
+	INST_I2F,
+    	INST_U2F,
+    	INST_F2I,
+    	INST_F2U,
 	INST_HALT,
 	EASM_NUMBER_OF_INSTS,
 } Inst_Type;
@@ -167,7 +180,7 @@ void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
 
 #define EVM_FILE_MAGIC 0x6D65
-#define EVM_FILE_VERSION 1
+#define EVM_FILE_VERSION 3
 
 PACK(struct Evm_File_Meta {
 	uint16_t magic;
@@ -273,10 +286,19 @@ const char *inst_name(Inst_Type type) {
 		case INST_RET:		return "ret";
 		case INST_CALL:		return "call";
 		case INST_NATIVE:	return "native";
-		case INST_EQ:          	return "eq";
 		case INST_NOT:		return "not";
-		case INST_GEI:		return "gei";
-		case INST_GEF:		return "gef";
+		case INST_EQF:     	return "eqf";
+    		case INST_GEF:     	return "gef";
+    		case INST_GTF:     	return "gtf";
+    		case INST_LEF:     	return "lef";
+    		case INST_LTF:     	return "ltf";
+    		case INST_NEF:     	return "nef";
+    		case INST_EQI:     	return "eqi";
+    		case INST_GEI:     	return "gei";
+    		case INST_GTI:     	return "gti";
+    		case INST_LEI:     	return "lei";
+    		case INST_LTI:     	return "lti";
+    		case INST_NEI:    	return "nei";
 		case INST_HALT:        	return "halt";
 		case INST_ANDB:		return "andb";
 		case INST_ORB:		return "orb";
@@ -292,6 +314,10 @@ const char *inst_name(Inst_Type type) {
 		case INST_WRITE16:	return "write16";
 		case INST_WRITE32:	return "write32";
 		case INST_WRITE64:	return "write64";
+		case INST_I2F:     	return "i2f";
+    		case INST_U2F:     	return "u2f";
+    		case INST_F2I:     	return "f2i";
+    		case INST_F2U:     	return "f2u";
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -318,10 +344,19 @@ int inst_has_operand(Inst_Type type) {
 		case INST_RET:		return 0;
 		case INST_CALL:		return 1;
 		case INST_NATIVE:	return 1;
-		case INST_EQ:          	return 0;
 		case INST_NOT:		return 0;
-		case INST_GEI:		return 0;
-		case INST_GEF:		return 0;
+		case INST_EQF:     	return 0;
+    		case INST_GEF:     	return 0;
+    		case INST_GTF:     	return 0;
+    		case INST_LEF:     	return 0;
+    		case INST_LTF:     	return 0;
+    		case INST_NEF:     	return 0;
+    		case INST_EQI:     	return 0;
+    		case INST_GEI:     	return 0;
+    		case INST_GTI:     	return 0;
+    		case INST_LEI:     	return 0;
+    		case INST_LTI:     	return 0;
+    		case INST_NEI:    	return 0;
 		case INST_HALT:        	return 0;
 		case INST_ANDB:   	return 0;
 		case INST_ORB:    	return 0;
@@ -337,6 +372,10 @@ int inst_has_operand(Inst_Type type) {
 		case INST_WRITE16:	return 0;
 		case INST_WRITE32:	return 0;
 		case INST_WRITE64:	return 0;
+		case INST_I2F:     	return 0;
+    		case INST_U2F:     	return 0;
+    		case INST_F2I:     	return 0;
+    		case INST_F2U:     	return 0;
 		case EASM_NUMBER_OF_INSTS:
 		default: UNREACHABLE("NOT EXISTING INST_TYPE");
 	}
@@ -351,6 +390,22 @@ bool inst_by_name(String_View name, Inst_Type *type) {
 	}
 	return false;
 }
+
+#define BINARY_OP(evm, in, out, op)                                     \
+    	do {                                                            \
+        	if ((evm)->stack_size < 2) return TRAP_STACK_UNDERFLOW;	\
+        	(evm)->stack[(evm)->stack_size - 2].as_##out = (evm)->stack[(evm)->stack_size - 2].as_##in op (evm)->stack[(evm)->stack_size - 1].as_##in; \
+        	(evm)->stack_size -= 1;                                	\
+        	(evm)->ip += 1;                                         \
+    	} while (false)
+
+#define CAST_OP(evm, src, dst, cast)             			\
+	do {                                        			\
+        	if ((evm)->stack_size < 1) return TRAP_STACK_UNDERFLOW;	\
+        	(evm)->stack[(evm)->stack_size - 1].as_##dst = cast (evm)->stack[(evm)->stack_size - 1].as_##src; \
+                                                                        \
+        	(evm)->ip += 1;                                          \
+    	} while (false)
 
 Trap evm_execute_inst(EVM *evm) {
 	if(evm->ip >= evm->program_size) return TRAP_ILLEGAL_INST_ACCESS;
@@ -383,68 +438,41 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_PLUSI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 += evm->stack[evm->stack_size - 1].as_u64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, +);
 		break;
 
 		case INST_MINUSI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 -= evm->stack[evm->stack_size - 1].as_u64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, -);
 		break;
 
 		case INST_MULTI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 *= evm->stack[evm->stack_size - 1].as_u64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, *);
 		break;
 
 		case INST_DIVI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
-			evm->stack[evm->stack_size - 2].as_u64 /= evm->stack[evm->stack_size - 1].as_u64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, /);
 		break;
 
 		case INST_MODI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
 			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return TRAP_DIV_BY_ZERO;
-			evm->stack[evm->stack_size - 2].as_u64 %= evm->stack[evm->stack_size - 1].as_u64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, %);
 		break;
 
 		case INST_PLUSF:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_f64 += evm->stack[evm->stack_size - 1].as_f64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, f64, f64, +);
 		break;
 
 		case INST_MINUSF:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_f64 -= evm->stack[evm->stack_size - 1].as_f64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, f64, f64, -);
 		break;
 
 		case INST_MULTF:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_f64 *= evm->stack[evm->stack_size - 1].as_f64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, f64, f64, *);
 		break;
 
 		case INST_DIVF:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_f64 /= evm->stack[evm->stack_size - 1].as_f64;
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, f64, f64, /);
 		break;
 
 		case INST_JMP:
@@ -486,25 +514,52 @@ Trap evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
-		case INST_EQ:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 == evm->stack[evm->stack_size - 2].as_u64);
-			evm->stack_size -= 1;
-			evm->ip += 1;
-		break;
-
-		case INST_GEI:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 2].as_u64 >= evm->stack[evm->stack_size - 1].as_u64);
-			evm->stack_size -= 1;
-			evm->ip += 1;
+		case INST_EQF:
+			BINARY_OP(evm, f64, u64, ==);
 		break;
 
 		case INST_GEF:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-			evm->stack[evm->stack_size - 2].as_u64 = (evm->stack[evm->stack_size - 1].as_u64 >= evm->stack[evm->stack_size - 2].as_u64);
-			evm->stack_size -= 1;
-			evm->ip += 1;
+			BINARY_OP(evm, f64, u64, >=);
+		break;
+
+		case INST_GTF:
+        		BINARY_OP(evm, f64, u64, >);
+        	break;
+
+    		case INST_LEF:
+        		BINARY_OP(evm, f64, u64, <=);
+        	break;
+
+    		case INST_LTF:
+        		BINARY_OP(evm, f64, u64, <);
+        	break;
+
+    		case INST_NEF:
+        		BINARY_OP(evm, f64, u64, !=);
+        	break;
+
+    		case INST_EQI:
+        		BINARY_OP(evm, u64, u64, ==);
+        	break;
+
+		case INST_GEI:
+		        BINARY_OP(evm, u64, u64, >=);
+        	break;
+
+		case INST_GTI:
+        		BINARY_OP(evm, u64, u64, >);
+        	break;
+
+    		case INST_LEI:
+        		BINARY_OP(evm, u64, u64, <=);
+        	break;
+
+    		case INST_LTI:
+        		BINARY_OP(evm, u64, u64, <);
+        	break;
+
+    		case INST_NEI:
+        		BINARY_OP(evm, u64, u64, !=);
 		break;
 
 		case INST_HALT:
@@ -522,38 +577,23 @@ Trap evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_ANDB:
-		        if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 & evm->stack[evm->stack_size - 1].as_u64;
-        		evm->stack_size -= 1;
-        		evm->ip += 1;
+			BINARY_OP(evm, u64, u64, &);
         	break;
 
     		case INST_ORB:
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 | evm->stack[evm->stack_size - 1].as_u64;
-        		evm->stack_size -= 1;
-        		evm->ip += 1;
+			BINARY_OP(evm, u64, u64, |);
         	break;
 
     		case INST_XOR:
-        		if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 ^ evm->stack[evm->stack_size - 1].as_u64;
-        		evm->stack_size -= 1;
-        		evm->ip += 1;
+			BINARY_OP(evm, u64, u64, ^);
         	break;
 
     		case INST_SHR:
-			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 >> evm->stack[evm->stack_size - 1].as_u64;
-        		evm->stack_size -= 1;
-        		evm->ip += 1;
+			BINARY_OP(evm, u64, u64, >>);
         	break;
 
     		case INST_SHL:
-       			if (evm->stack_size < 2) return TRAP_STACK_UNDERFLOW;
-        		evm->stack[evm->stack_size - 2].as_u64 = evm->stack[evm->stack_size - 2].as_u64 << evm->stack[evm->stack_size - 1].as_u64;
-        		evm->stack_size -= 1;
-       			evm->ip += 1;
+			BINARY_OP(evm, u64, u64, <<);
         	break;
 
     		case INST_NOTB:
@@ -630,7 +670,23 @@ Trap evm_execute_inst(EVM *evm) {
         		evm->ip += 1;
 		} break;
 
-		case EASM_NUMBER_OF_INSTS:
+		case INST_I2F:
+        		CAST_OP(evm, i64, f64, (double));
+        	break;
+
+    		case INST_U2F:
+        		CAST_OP(evm, u64, f64, (double));
+        	break;
+
+    		case INST_F2I:
+        		CAST_OP(evm, f64, i64, (int64_t));
+        	break;
+
+    		case INST_F2U:
+        		CAST_OP(evm, f64, u64, (uint64_t) (int64_t));
+        	break;
+
+    		case EASM_NUMBER_OF_INSTS:
 		default:
 			return TRAP_ILLEGAL_INST;
 	}
