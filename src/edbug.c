@@ -1,16 +1,6 @@
 #include <assert.h>
-#include <fcntl.h>
-#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__NetBSD__) \
-    || defined(__OpenBSD__) || defined(__DragonFly__)
-#include <limits.h>
-#else
-#define PATH_MAX 4096
-#endif
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "./edbug.h"
 
@@ -29,24 +19,14 @@ Edb_Err edb_state_init(Edb_State *state, const char *executable) {
 	evm_load_program_from_file(&state->evm, executable);
 	evm_load_standard_natives(&state->evm);
 
-	char buf[PATH_MAX];
-    	memcpy(buf, executable, strlen(executable));
-    	memcpy(buf + strlen(executable), ".sym", 5);
-
-    	if (access(buf, R_OK) == 0) {
-        	fprintf(stdout, "INFO : Loading debug symbols...\n");
-        	return edb_load_symtab(state, buf);
-    	}
-
-	return EDB_OK;
+	fprintf(stdout, "INFO : Loading debug symbols...\n");
+    	return edb_load_symtab(state, arena_sv_concat2(&state->arena, executable, ".sym"));
 }
 
-Edb_Err edb_load_symtab(Edb_State *state, const char *symtab_file) {
+Edb_Err edb_load_symtab(Edb_State *state, String_View symtab_file) {
 	assert(state);
-    	assert(symtab_file);
 
-    	String_View symtab;
-	if (edb_mmap_file(symtab_file, &symtab) == EDB_FAIL) return EDB_FAIL;
+	String_View symtab = arena_slurp_file(&state->arena, symtab_file);
     	while (symtab.count > 0) {
 		symtab = sv_trim_left(symtab);
 		String_View raw_addr   = sv_chop_by_delim(&symtab, '\t');
@@ -139,28 +119,6 @@ Edb_Err edb_parse_label_or_addr(Edb_State *st, const char *in, Inst_Addr *out) {
     	return EDB_OK;
 }
 
-Edb_Err edb_mmap_file(const char *path, String_View *out) {
-   	assert(path);
-   	assert(out);
-
-    	int fd;
-
-    	if ((fd = open(path, O_RDONLY)) < 0) return EDB_FAIL;
-
-    	struct stat stat_buf;
-    	if (fstat(fd, &stat_buf) < 0) return EDB_FAIL;
-
-    	char *content = mmap(NULL, (size_t)stat_buf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    	if (content == MAP_FAILED) return EDB_FAIL;
-
-    	out->data = content;
-    	out->count = (size_t)stat_buf.st_size;
-
-    	close(fd);
-
-    	return EDB_OK;
-}
-
 void edb_print_instr(FILE *f, Inst *i) {
 	fprintf(f, "%s ", inst_name(i->type));
     	if (inst_has_operand(i->type))
@@ -219,13 +177,14 @@ Edb_Err edb_fault(Edb_State *state, Trap trap) {
     	return EDB_OK;
 }
 
+Edb_State state = {0};
+
 int main(int argc, char **argv) {
     	if (argc < 2) {
 		usage();
         	return EXIT_FAILURE;
     	}
 
-	Edb_State state = {0};
     	state.evm.halt = 1;
 
     	printf("EDB - The birtual machine debugger.\nType 'h' and enter for a quick help\n");

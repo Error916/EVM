@@ -41,7 +41,8 @@
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
 #define EASM_MAX_INCLUDE_LEVEL 64
-#define EASM_ARENA_CAPACITY (1000 * 1000 * 1000)
+
+#define ARENA_CAPACITY (1000 * 1000 * 1000)
 
 typedef struct {
 	size_t count;
@@ -192,6 +193,16 @@ PACK(struct Evm_File_Meta {
 
 typedef struct Evm_File_Meta Evm_File_Meta;
 
+// NOTE: https://en.wikipedia.org/wiki/Region-based_memory_management
+typedef struct {
+	char buffer[ARENA_CAPACITY];
+	size_t size;
+} Arena;
+
+void *arena_alloc(Arena *arena, size_t size);
+String_View arena_slurp_file(Arena *arena, String_View file_path);
+String_View arena_sv_concat2(Arena *arena, const char *a, const char *b);
+
 typedef struct {
 	String_View name;
 	Word word;
@@ -216,12 +227,9 @@ typedef struct {
     	size_t memory_size;
     	size_t memory_capacity;
 
-	unsigned char arena[EASM_ARENA_CAPACITY];
-	size_t arena_size;
+	Arena arena;
 } EASM;
 
-void *easm_alloc(EASM *easm, size_t size);
-String_View easm_slurp_file(EASM *easm, String_View file_path);
 bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
 bool easm_bind_label(EASM *easm, String_View name, Word word);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
@@ -879,11 +887,11 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
 	return result;
 }
 
-void *easm_alloc(EASM *easm, size_t size) {
-	assert(easm->arena_size + size <= EASM_ARENA_CAPACITY);
+void *arena_alloc(Arena *arena, size_t size) {
+	assert(arena->size + size <= ARENA_CAPACITY);
 
-	void *result = easm->arena + easm->arena_size;
-	easm->arena_size += size;
+	void *result = arena->buffer + arena->size;
+	arena->size += size;
 	return result;
 }
 
@@ -951,7 +959,7 @@ void easm_save_to_file(EASM *easm, const char *file_path) {
 }
 
 void easm_translate_source(EASM *easm, String_View input_file_path, size_t level) {
-	String_View original_source = easm_slurp_file(easm, input_file_path);
+	String_View original_source = arena_slurp_file(&easm->arena, input_file_path);
 	String_View source = original_source;
 	size_t line_number = 0;
 
@@ -1084,7 +1092,7 @@ bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
         	sv.count -= 2;
         	*output = easm_push_string_to_memory(easm, sv);
 	} else {
-		char *cstr = easm_alloc(easm, sv.count + 1);
+		char *cstr = arena_alloc(&easm->arena, sv.count + 1);
 		memcpy(cstr, sv.data, sv.count);
 		cstr[sv.count] = '\0';
 
@@ -1101,8 +1109,8 @@ bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
 	return true;
 }
 
-String_View easm_slurp_file(EASM *easm, String_View file_path) {
-	char *file_path_cstr = easm_alloc(easm, file_path.count + 1);
+String_View arena_slurp_file(Arena *arena, String_View file_path) {
+	char *file_path_cstr = arena_alloc(arena, file_path.count + 1);
 	if (file_path_cstr == NULL) {
 		fprintf(stderr, "Could not allocate memory for file path: %s\n", strerror(errno));
 		exit(1);
@@ -1128,7 +1136,7 @@ String_View easm_slurp_file(EASM *easm, String_View file_path) {
 		exit(1);
 	}
 
-	char *buffer = easm_alloc(easm, (size_t)m);
+	char *buffer = arena_alloc(arena, (size_t)m);
 	if (buffer == NULL) {
 		fprintf(stderr, "Could not allocate memory for file: %s\n", strerror(errno));
 		exit(1);
@@ -1150,6 +1158,18 @@ String_View easm_slurp_file(EASM *easm, String_View file_path) {
 	return (String_View) {
 		.count = n,
 		.data = buffer,
+	};
+}
+
+String_View arena_sv_concat2(Arena *arena, const char *a, const char *b) {
+    	const size_t a_len = strlen(a);
+    	const size_t b_len = strlen(b);
+    	char *buf = arena_alloc(arena, a_len + b_len);
+    	memcpy(buf, a, a_len);
+    	memcpy(buf + a_len, b, b_len);
+    	return (String_View) {
+        	.count = a_len + b_len,
+        	.data = buf,
 	};
 }
 

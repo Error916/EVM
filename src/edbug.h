@@ -20,15 +20,15 @@ typedef struct {
 	String_View code_file_name;
 	Edb_Breakpoint breakpoints[EVM_PROGRAM_CAPACITY];
 	String_View labels[EVM_PROGRAM_CAPACITY];
+	Arena arena;
 } Edb_State;
 
 Edb_Err edb_state_init(Edb_State *state, const char *executable);
-Edb_Err edb_load_symtab(Edb_State *state, const char *symtab_file);
+Edb_Err edb_load_symtab(Edb_State *state, String_View symtab_file);
 Edb_Err edb_step_instr(Edb_State *state);
 Edb_Err edb_continue(Edb_State *state);
 Edb_Err edb_find_addr_of_label(Edb_State *state, const char *name, Inst_Addr *out);
 Edb_Err edb_parse_label_or_addr(Edb_State *st, const char *in, Inst_Addr *out);
-Edb_Err edb_mmap_file(const char *path, String_View *out);
 void edb_print_instr(FILE *f, Inst *i);
 void edb_add_breakpoint(Edb_State *state, Inst_Addr addr);
 void edb_delete_breakpoint(Edb_State *state, Inst_Addr addr);
