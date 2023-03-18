@@ -68,9 +68,11 @@ int main(int argc, char **argv) {
 	gen_print_i64();
 	printf("_start:\n");
 
+	size_t jmp_if_escape_count = 0;
 	for (size_t i = 0; i < easm.program_size; ++i) {
 		Inst inst = easm.program[i];
 
+		printf("inst_%zu:\n", i);
 		switch (inst.type) {
 			case INST_NOP: UNIMPLEMENTED("INST_NOP");
 
@@ -82,8 +84,29 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_DROP: UNIMPLEMENTED("INST_DROP");
-			case INST_DUP: UNIMPLEMENTED("INST_DUP");
-			case INST_SWAP: UNIMPLEMENTED("INST_SWAP");
+
+			case INST_DUP: {
+				printf("\t;; dup %lu\n", inst.operand.as_u64);
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tmov rdi, rsi\n");
+				printf("\tsub rdi, EVM_WORD_SIZE * (%lu + 1)\n", inst.operand.as_u64);
+				printf("\tmov rax, [rdi]\n");
+				printf("\tmov [rsi], rax\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+			} break;
+
+			case INST_SWAP: {
+				printf("\t;; swap %lu\n", inst.operand.as_u64);
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rdi, rsi\n");
+				printf("\tsub rdi, EVM_WORD_SIZE * %lu\n", inst.operand.as_u64);
+				printf("\tmov rax, [rsi]\n");
+				printf("\tmov rbx, [rdi]\n");
+				printf("\tmov [rdi], rax\n");
+				printf("\tmov [rsi], rbx\n");
+			} break;
 
 			case INST_PLUSI: {
 				printf("\t;; plusi \n");
@@ -98,7 +121,19 @@ int main(int argc, char **argv) {
 				printf("\tmov [stack_top], rsi\n");
 			} break;
 
-			case INST_MINUSI: UNIMPLEMENTED("INST_MINUSI");
+			case INST_MINUSI: {
+				printf("\t;; minusi \n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rbx, [rsi]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\tsub rax, rbx\n");
+				printf("\tmov [rsi], rax\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+			} break;
+
 			case INST_MULTI: UNIMPLEMENTED("INST_MULTI");
 			case INST_DIVI: UNIMPLEMENTED("INST_DIVI");
 			case INST_MODI: UNIMPLEMENTED("INST_MODI");
@@ -107,7 +142,22 @@ int main(int argc, char **argv) {
 			case INST_MULTF: UNIMPLEMENTED("INST_MULTF");
 			case INST_DIVF: UNIMPLEMENTED("INST_DIVF");
 			case INST_JMP: UNIMPLEMENTED("INST_JMP");
-			case INST_JMP_IF: UNIMPLEMENTED("INST_JMP_IF");
+
+			case INST_JMP_IF: {
+				printf("\t;; TODO: jmp_if %lu\n", inst.operand.as_u64);
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\tmov [stack_top], rsi\n");
+				printf("\tcmp rax, 0\n");
+				printf("\tje jmp_if_escape_%zu\n", jmp_if_escape_count);
+				printf("\tmov rdi, inst_map\n");
+				printf("\tadd rdi, EVM_WORD_SIZE * %lu\n", inst.operand.as_u64);
+				printf("\tjmp [rdi]\n");
+				printf("jmp_if_escape_%zu:\n", jmp_if_escape_count);
+				jmp_if_escape_count += 1;
+			} break;
+
 			case INST_RET: UNIMPLEMENTED("INST_RET");
 			case INST_CALL: UNIMPLEMENTED("INST_CALL");
 
@@ -118,8 +168,32 @@ int main(int argc, char **argv) {
 				} else UNIMPLEMENTED("Unsupported native function");
 			} break;
 
-			case INST_NOT: UNIMPLEMENTED("INST_NOT");
-			case INST_EQI: UNIMPLEMENTED("INST_EQI");
+			case INST_NOT: {
+				printf("\t;; not\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\tcmp rax, 0\n");
+				printf("\tmov rax, 0\n");
+				printf("\tsetz al\n");
+				printf("\tmov [rsi], rax\n");
+	    		} break;
+
+			case INST_EQI: {
+				printf("\t;; eqi\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rbx, [rsi]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\tcmp rax, rbx\n");
+				printf("\tmov rax, 0\n");
+				printf("\tsetz al\n");
+				printf("\tmov [rsi], rax\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+			} break;
+
 			case INST_GEI: UNIMPLEMENTED("INST_GEI");
 			case INST_GTI: UNIMPLEMENTED("INST_GTI");
 			case INST_LEI: UNIMPLEMENTED("INST_LEI");
@@ -165,6 +239,11 @@ int main(int argc, char **argv) {
 	printf("\tret\n");
 	printf("segment .data\n");
 	printf("stack_top: dq stack\n");
+	printf("inst_map: dq");
+    	for (size_t i = 0; i < easm.program_size; ++i) {
+        	printf(" inst_%zu,", i);
+    	}
+    	printf("\n");
 	printf("segment .bss\n");
 	printf("stack: resq EVM_STACK_CAPACITY\n");
 
