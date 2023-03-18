@@ -11,9 +11,8 @@ int main(int argc, char **argv) {
 	const char *input_file_path = argv[1];
 
 	int limit = -1; // NO LIMIT
-	EVM evm = { 0 };
-
-	// limit = 1024;
+	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
+	static EVM evm = { 0 };
 
 	evm_load_program_from_file(&evm, input_file_path);
 	evm_load_standard_natives(&evm);

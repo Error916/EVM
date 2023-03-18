@@ -46,8 +46,6 @@ static void usage(FILE *f) {
 		fprintf(f, "Usage: easm2nasm <input.easm>\n");
 }
 
-EASM easm = { 0 };
-
 int main(int argc, char **argv) {
 	if (argc < 2) {
 		usage(stderr);
@@ -55,6 +53,8 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
+	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
+	static EASM easm = { 0 };
 	easm_translate_source(&easm, cstr_as_sv(argv[1]));
 
 	printf("BITS 64\n");

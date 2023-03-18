@@ -29,10 +29,10 @@ Edb_Err edb_load_symtab(Edb_State *state, String_View symtab_file) {
 	String_View symtab = arena_slurp_file(&state->arena, symtab_file);
     	while (symtab.count > 0) {
 		symtab = sv_trim_left(symtab);
-		String_View raw_addr   = sv_chop_by_delim(&symtab, '\t');
+		String_View raw_addr = sv_chop_by_delim(&symtab, '\t');
 		symtab = sv_trim_left(symtab);
 		String_View label_name = sv_chop_by_delim(&symtab, '\n');
-		Inst_Addr addr = (Inst_Addr)sv_to_int(raw_addr);
+		Inst_Addr addr = sv_to_u64(raw_addr);
 
         	if (addr < EVM_PROGRAM_CAPACITY) state->labels[addr] = label_name;
     	}
@@ -174,14 +174,14 @@ Edb_Err edb_fault(Edb_State *state, Err err) {
     	return EDB_OK;
 }
 
-Edb_State state = {0};
-
 int main(int argc, char **argv) {
     	if (argc < 2) {
 		usage();
         	return EXIT_FAILURE;
     	}
 
+	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
+	static Edb_State state = { 0 };
     	state.evm.halt = 1;
 
     	printf("EDB - The birtual machine debugger.\nType 'h' and enter for a quick help\n");

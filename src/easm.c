@@ -1,15 +1,6 @@
 #define EVM_IMPLEMENTATION
 #include "./evm.h"
 
-#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__NetBSD__)   \
-    || defined(__OpenBSD__) || defined(__DragonFly__)
-#include <limits.h>
-#else
-#define PATH_MAX 4096
-#endif
-
-EASM easm = { 0 };
-
 static char *shift(int *argc, char ***argv) {
 	assert(*argc > 0);
 	char *result = **argv;
@@ -46,16 +37,14 @@ int main(int argc, char **argv) {
 
 	const char *output_file_path = shift(&argc, &argv);
 
+	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
+	static EASM easm = { 0 };
+
 	easm_translate_source(&easm, cstr_as_sv(input_file_path));
 	easm_save_to_file(&easm, output_file_path);
 
 	if (have_symbol_table) {
-		char sym_file_name[PATH_MAX];
-
-		size_t output_file_path_len = strlen(output_file_path);
-
-		memcpy(sym_file_name, output_file_path, output_file_path_len);
-		memcpy(sym_file_name + output_file_path_len, ".sym", 5);
+		const char *sym_file_name = arena_cstr_concat2(&easm.arena, output_file_path, ".sym");
 		FILE *symbol_file = fopen(sym_file_name, "w");
 		if (!symbol_file) {
 			fprintf(stderr, "ERROR: Unable to open symbol table file\n");

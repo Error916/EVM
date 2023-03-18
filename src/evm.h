@@ -54,7 +54,7 @@ typedef struct {
 
 String_View cstr_as_sv(const char *cstr);
 bool sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
+uint64_t sv_to_u64(String_View sv);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
@@ -202,7 +202,9 @@ typedef struct {
 
 void *arena_alloc(Arena *arena, size_t size);
 String_View arena_slurp_file(Arena *arena, String_View file_path);
+const char *arena_sv_to_cstr(Arena *arena, String_View sv);
 String_View arena_sv_concat2(Arena *arena, const char *a, const char *b);
+const char *arena_cstr_concat2(Arena *arena, const char *a, const char *b);
 
 typedef struct {
 	String_View name;
@@ -828,11 +830,11 @@ bool sv_eq(String_View a, String_View b) {
 	else return (memcmp(a.data, b.data, a.count) == 0);
 }
 
-int sv_to_int(String_View sv) {
-	int result = 0;
+uint64_t sv_to_u64(String_View sv) {
+	uint64_t result = 0;
 
 	for (size_t i = 0; i < sv.count && isdigit(sv.data[i]); ++i) {
-        	result = result * 10 + sv.data[i] - '0';
+        	result = result * 10 + (uint64_t)sv.data[i] - '0';
 	}
 
 	return result;
@@ -1096,9 +1098,7 @@ bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
         	sv.count -= 2;
         	*output = easm_push_string_to_memory(easm, sv);
 	} else {
-		char *cstr = arena_alloc(&easm->arena, sv.count + 1);
-		memcpy(cstr, sv.data, sv.count);
-		cstr[sv.count] = '\0';
+		const char *cstr = arena_sv_to_cstr(&easm->arena, sv);
 
 		char *endptr = 0;
 		Word result = { 0 };
@@ -1114,14 +1114,7 @@ bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
 }
 
 String_View arena_slurp_file(Arena *arena, String_View file_path) {
-	char *file_path_cstr = arena_alloc(arena, file_path.count + 1);
-	if (file_path_cstr == NULL) {
-		fprintf(stderr, "Could not allocate memory for file path: %s\n", strerror(errno));
-		exit(1);
-	}
-	memcpy(file_path_cstr, file_path.data, file_path.count);
-	file_path_cstr[file_path.count] = '\0';
-
+	const char *file_path_cstr = arena_sv_to_cstr(arena, file_path);
 	FILE *f = fopen(file_path_cstr, "r");
 
 	if (f == NULL) {
@@ -1163,6 +1156,23 @@ String_View arena_slurp_file(Arena *arena, String_View file_path) {
 		.count = n,
 		.data = buffer,
 	};
+}
+
+const char *arena_sv_to_cstr(Arena *arena, String_View sv) {
+	char *cstr = arena_alloc(arena, sv.count + 1);
+	memcpy(cstr, sv.data, sv.count);
+	cstr[sv.count] = '\0';
+	return cstr;
+}
+
+const char *arena_cstr_concat2(Arena *arena, const char *a, const char *b) {
+	const size_t a_len = strlen(a);
+	const size_t b_len = strlen(b);
+	char *buf = arena_alloc(arena, a_len + b_len + 1);
+	memcpy(buf, a, a_len);
+	memcpy(buf + a_len, b, b_len);
+	buf[a_len + b_len] = '\0';
+	return buf;
 }
 
 String_View arena_sv_concat2(Arena *arena, const char *a, const char *b) {
