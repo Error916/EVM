@@ -87,14 +87,12 @@ Edb_Err edb_continue(Edb_State *state) {
     	return EDB_OK;
 }
 
-Edb_Err edb_find_addr_of_label(Edb_State *state, const char *name, Inst_Addr *out) {
+Edb_Err edb_find_addr_of_label(Edb_State *state, String_View name, Inst_Addr *out) {
     	assert(state);
-    	assert(name);
     	assert(out);
 
-    	String_View _name = sv_trim_right(cstr_as_sv(name));
     	for (Inst_Addr i = 0; i < EVM_PROGRAM_CAPACITY; ++i) {
-        	if (state->labels[i].data && sv_eq(state->labels[i], _name)) {
+        	if (state->labels[i].data && sv_eq(state->labels[i], name)) {
             		*out = i;
             		return EDB_OK;
         	}
@@ -103,17 +101,16 @@ Edb_Err edb_find_addr_of_label(Edb_State *state, const char *name, Inst_Addr *ou
     	return EDB_FAIL;
 }
 
-Edb_Err edb_parse_label_or_addr(Edb_State *st, const char *in, Inst_Addr *out) {
+Edb_Err edb_parse_label_or_addr(Edb_State *st, String_View addr, Inst_Addr *out) {
     	assert(st);
-    	assert(in);
     	assert(out);
+	if (addr.count == 0) return EDB_FAIL;
 
     	char *endptr = NULL;
-    	size_t len = strlen(in);
 
-    	*out = strtoull(in, &endptr, 10);
-    	if (endptr != in + len) {
-        	if (edb_find_addr_of_label(st, in, out) == EDB_FAIL) return EDB_FAIL;
+    	*out = strtoull(addr.data, &endptr, 10);
+    	if (endptr != addr.data + addr.count) {
+        	if (edb_find_addr_of_label(st, addr, out) == EDB_FAIL) return EDB_FAIL;
     	}
 
     	return EDB_OK;
@@ -194,10 +191,11 @@ int main(int argc, char **argv) {
 
     	while (1) {
 		printf("(edb) ");
-        	char input_buf[32];
+        	char input_buf[32] = { 0 };
         	fgets(input_buf, 32, stdin);
-
-        	switch (*input_buf) {
+		String_View input_sv = cstr_as_sv(input_buf);
+            	String_View control_word = sv_trim(sv_chop_by_delim(&input_sv, ' '));
+        	switch (*control_word.data) {
         		case 'n': {
             			Edb_Err err = edb_step_instr(&state);
             			if (err) return EXIT_FAILURE;
@@ -216,12 +214,11 @@ int main(int argc, char **argv) {
         		} break;
 
 			case 'b': {
-            			// TODO: `b 0` in edb results in "ERR : Cannot parse address or labels"
-            			char *addr = input_buf + 2;
             			Inst_Addr break_addr;
+				String_View addr = sv_trim(input_sv);
 
             			if (edb_parse_label_or_addr(&state, addr, &break_addr) == EDB_FAIL) {
-            		    		fprintf(stderr, "ERR : Cannot parse address or labels\n");
+            		    		fprintf(stderr, "ERR : Cannot parse address or label\n");
                 			continue;
             			}
 
@@ -230,11 +227,11 @@ int main(int argc, char **argv) {
         		} break;
 
 			case 'd': {
-            			char *addr = input_buf + 2;
             			Inst_Addr break_addr;
+				String_View addr = sv_trim(input_sv);
 
             			if (edb_parse_label_or_addr(&state, addr, &break_addr) == EDB_FAIL) {
-                			fprintf(stderr, "ERR : Cannot parse address or labels\n");
+                			fprintf(stderr, "ERR : Cannot parse address or label\n");
                 			continue;
             			}
 
