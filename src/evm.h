@@ -31,6 +31,7 @@
         exit(1); \
     } while (0)
 
+#define EVM_WORD_SIZE 8
 #define EVM_STACK_CAPACITY 1024
 #define EVM_PROGRAM_CAPACITY 1024
 #define EVM_NATIVES_CAPACITY 1024
@@ -68,7 +69,7 @@ typedef union {
 	double as_f64;
 	void *as_ptr;
 } Word;
-static_assert(sizeof(Word) == 8, "The EVM's Word is expected to be 64 bits");
+static_assert(sizeof(Word) == EVM_WORD_SIZE, "The EVM's Word is expected to be 64 bits");
 
 Word word_u64(uint64_t u64);
 Word word_i64(int64_t i64);
