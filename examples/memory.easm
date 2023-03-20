@@ -1,6 +1,8 @@
 #include "./examples/natives.hasm"
 #label N 256
 
+#entry main
+main:
 	push 0
 loop:
 	dup 0

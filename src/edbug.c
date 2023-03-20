@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
         	fprintf(stderr, "FATAL : Unable to initialize the debugger: %s\n", strerror(errno));
     	}
 
-    	while (1) {
+    	while (!feof(stdin)) {
 		printf("(edb) ");
         	char input_buf[32] = { 0 };
         	fgets(input_buf, 32, stdin);

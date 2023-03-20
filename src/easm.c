@@ -41,6 +41,12 @@ int main(int argc, char **argv) {
 	static EASM easm = { 0 };
 
 	easm_translate_source(&easm, cstr_as_sv(input_file_path));
+
+	if (!easm.has_entry) {
+		fprintf(stderr, "%s: ERROR: entry point for EVM not provided. Use preprocessor directive #entry to provide the entry point\n", input_file_path);
+		exit(1);
+	}
+
 	easm_save_to_file(&easm, output_file_path);
 
 	if (have_symbol_table) {

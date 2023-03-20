@@ -14,8 +14,6 @@
 #label a 97
 #label z 122
 
-jmp main
-
 ; high >= value >= low
 is_between:
 	swap 3
@@ -40,6 +38,7 @@ rot13:
 	swap 1
 	ret
 
+#entry main
 main:
     	push 0
 

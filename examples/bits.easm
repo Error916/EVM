@@ -5,7 +5,7 @@
 
 ;; N >> 1
 
-    jmp main
+#entry main
 main:
     push N
 loop:

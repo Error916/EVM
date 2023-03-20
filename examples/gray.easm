@@ -1,12 +1,11 @@
 ;; Generate N Gray Code numbers https://en.wikipedia.org/wiki/Gray_code
 #include "./examples/natives.hasm"
 
-    jmp main
-
 #label N 100
 
 ; i + 1
 
+#entry main
 main:
     push 0     ; i
 loop:

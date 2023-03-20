@@ -6,6 +6,9 @@
 
 ; sum(1/n!)
 ; 1/1 + 1/1 + 1/(1 * 2) + 1/(1 * 2 * 3) + ...
+
+#entry main
+main:
 	push 1.0       ; n
 	push 1.0       ; n!
 	push 1.0       ; sum

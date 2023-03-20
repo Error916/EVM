@@ -1,6 +1,8 @@
 #include "./examples/natives.hasm"
 #label hello "Hello, World" ; message
 
+#entry main
+main:
 push hello
 push 12
 plusi

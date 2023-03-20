@@ -182,12 +182,13 @@ void evm_push_inst(EVM *evm, Inst inst);
 void evm_load_program_from_file(EVM *evm, const char *file_path);
 
 #define EVM_FILE_MAGIC 0x6D65
-#define EVM_FILE_VERSION 3
+#define EVM_FILE_VERSION 4
 
 PACK(struct Evm_File_Meta {
 	uint16_t magic;
 	uint16_t version;
 	uint64_t program_size;
+	uint64_t entry;
 	uint64_t memory_size;
 	uint64_t memory_capacity;
 });
@@ -225,6 +226,9 @@ typedef struct {
 
 	Inst program[EVM_PROGRAM_CAPACITY];
     	uint64_t program_size;
+	Inst_Addr entry;
+	bool has_entry;
+	String_View deffered_entry_binding_name;
 
     	uint8_t memory[EVM_MEMORY_CAPACITY];
     	size_t memory_size;
@@ -790,6 +794,8 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 		exit(1);
 	}
 
+	evm->ip = meta.entry;
+
 	if (meta.memory_capacity > EVM_MEMORY_CAPACITY) {
         	fprintf(stderr, "ERROR: %s: memory section is too big. The file wants %lu bytes. But the capacity is %lu bytes\n", file_path, meta.memory_capacity, (uint64_t) EVM_MEMORY_CAPACITY);
         	exit(1);
@@ -937,6 +943,7 @@ void easm_save_to_file(EASM *easm, const char *file_path) {
 		.magic = EVM_FILE_MAGIC,
 		.version = EVM_FILE_VERSION,
 		.program_size = easm->program_size,
+		.entry = easm->entry,
 		.memory_size = easm->memory_size,
 		.memory_capacity = easm->memory_capacity,
 	};
@@ -1022,6 +1029,26 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						fprintf(stderr, "ERROR: include file path is not provided on line %lu\n", line_number);
 						exit(1);
 					}
+				} else if (sv_eq(token, cstr_as_sv("entry"))) {
+					if (easm->has_entry) {
+						fprintf(stderr, "ERROR: on line %lu entry point has been already set!\n", line_number);
+					}
+
+					line = sv_trim(line);
+					if (line.count == 0) {
+						fprintf(stderr, "ERROR: entry point is not specified on line %lu\n", line_number);
+						exit(1);
+					}
+
+					Word entry = { 0 };
+
+					if (!easm_translate_literal(easm, line, &entry)) {
+						easm->deffered_entry_binding_name = line;
+					} else {
+						easm->entry = entry.as_u64;
+					}
+
+					easm->has_entry = true;
 			 	} else {
 					fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
 					exit(1);
@@ -1074,6 +1101,15 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
 			exit(1);
 		}
+	}
+
+	if (easm->has_entry && easm->deffered_entry_binding_name.count > 0) {
+		Word output = { 0 };
+		if (!easm_resolve_label(easm, easm->deffered_entry_binding_name, &output)) {
+			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(easm->deffered_entry_binding_name));
+			exit(1);
+		}
+		easm->entry = output.as_u64;
 	}
 }
 

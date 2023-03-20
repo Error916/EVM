@@ -7,6 +7,8 @@
 ;
 #include "./examples/natives.hasm"
 
+#entry main
+main:
 push 4.0        ; acc (result of first division 4/1)
 push 3.0        ; denominator
 push 750000     ; counter

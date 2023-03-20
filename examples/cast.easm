@@ -1,5 +1,7 @@
 #include "./examples/natives.hasm"
 
+#entry main
+main:
 push 3.1415
 f2i
 native print_i64

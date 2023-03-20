@@ -5,6 +5,7 @@
 ; N-1
 ; F_1+F_0
 ; F_1
+#entry main
 main:
 	push 0			; F_0
 	push 1			; F_1
