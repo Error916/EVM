@@ -209,7 +209,30 @@ int main(int argc, char **argv) {
             			printf("ip = %lu \n", state.evm.ip);
         		} break;
 
-        		case 's': {
+			case 'x': {
+				input_sv = sv_trim(input_sv);
+				String_View where_sv = sv_chop_by_delim(&input_sv, ' ');
+				String_View count_sv = input_sv;
+
+				Inst_Addr where = 0;
+            			if (edb_parse_label_or_addr(&state, where_sv, &where) == EDB_FAIL) {
+                			fprintf(stderr, "ERR : Cannot parse address or label `%.*s`\n", SV_FORMAT(where_sv));
+                			continue;
+            			}
+
+				Inst_Addr count = 0;
+            			if (edb_parse_label_or_addr(&state, count_sv, &count) == EDB_FAIL) {
+        				fprintf(stderr, "ERR : Cannot parse address or label `%.*s`\n", SV_FORMAT(count_sv));
+        				continue;
+            			}
+
+            			for (Inst_Addr i = 0; i < count && where + i < EVM_MEMORY_CAPACITY; ++i) {
+                			printf("%02X ", state.evm.memory[where + i]);
+            			}
+            			printf("\n");
+			} break;
+
+			case 's': {
             			evm_dump_stack(stdout, &state.evm);
         		} break;
 
@@ -262,6 +285,7 @@ int main(int argc, char **argv) {
                    			"c - continue program execution\n"
                    			"s - stack dump\n"
                    			"i - instruction pointer\n"
+					"x - inspect the memory\n"
                    			"b - set breakpoint at address or label\n"
                    			"d - destroy breakpoint at address or label\n"
                    			"q - quit\n");
