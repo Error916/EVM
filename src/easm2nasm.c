@@ -154,14 +154,14 @@ int main(int argc, char **argv) {
 			case INST_MODU: {
 				printf("\t;; modi\n");
 				printf("\tmov rsi, [stack_top]\n");
-				printf("\tsub rsi, BM_WORD_SIZE\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
 				printf("\tmov rbx, [rsi]\n");
-				printf("\tsub rsi, BM_WORD_SIZE\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
 				printf("\tmov rax, [rsi]\n");
 				printf("\txor rdx, rdx\n");
 				printf("\tdiv rbx\n");
 				printf("\tmov [rsi], rdx\n");
-				printf("\tadd rsi, BM_WORD_SIZE\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
 				printf("\tmov [stack_top], rsi\n");
         		} break;
 

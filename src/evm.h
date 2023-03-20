@@ -216,10 +216,16 @@ const char *arena_sv_to_cstr(Arena *arena, String_View sv);
 String_View arena_sv_concat2(Arena *arena, const char *a, const char *b);
 const char *arena_cstr_concat2(Arena *arena, const char *a, const char *b);
 
+typedef enum {
+    BINDING_CONST = 0,
+    BINDING_LABEL,
+} Binding_Kind;
+
 typedef struct {
+	Binding_Kind kind;
 	String_View name;
 	Word word;
-} Label;
+} Binding;
 
 typedef struct {
 	Inst_Addr addr;
@@ -227,7 +233,7 @@ typedef struct {
 } Deferred_Operand;
 
 typedef struct {
-	Label labels[EASM_LABELS_CAPACITY];
+	Binding labels[EASM_LABELS_CAPACITY];
 	size_t labels_size;
 
 	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
@@ -249,7 +255,7 @@ typedef struct {
 } EASM;
 
 bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
-bool easm_bind_label(EASM *easm, String_View name, Word word);
+bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
 void easm_save_to_file(EASM *easm, const char *output_file_path);
@@ -981,11 +987,11 @@ bool easm_resolve_label(const EASM *easm, String_View name, Word *output) {
 	return false;
 }
 
-bool easm_bind_label(EASM *easm, String_View name, Word word) {
+bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind) {
 	assert(easm->labels_size < EASM_LABELS_CAPACITY);
 	Word ignore = { 0 };
 	if (easm_resolve_label(easm, name, &ignore)) return false;
-	easm->labels[easm->labels_size++] = (Label) { .name = name, .word = word };
+	easm->labels[easm->labels_size++] = (Binding) { .name = name, .word = word, .kind = kind };
 	return true;
 }
 
@@ -1063,7 +1069,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 							exit(1);
 						}
 
-						if (!easm_bind_label(easm, label, word)) {
+						if (!easm_bind_value(easm, label, word, BINDING_CONST)) {
 							fprintf(stderr, "ERROR: label '%.*s' is allready define\n", SV_FORMAT(label));
 							exit(1);
 						}
@@ -1119,13 +1125,13 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 					exit(1);
 				}
 			} else {
-				// Label
+				// Binding
 				if (token.count > 0 && token.data[token.count - 1] == ':') {
 					String_View label = {
 						.count = token.count - 1,
 						.data = token.data,
 					};
-					if (!easm_bind_label(easm, label, word_u64(easm->program_size))) {
+					if (!easm_bind_value(easm, label, word_u64(easm->program_size), BINDING_LABEL)) {
 						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", SV_FORMAT(label), line_number);
 						exit(1);
 					}
