@@ -1,7 +1,7 @@
 ;; Generate N Gray Code numbers https://en.wikipedia.org/wiki/Gray_code
 #include "./examples/natives.hasm"
 
-#label N 100
+#const N 100
 
 ; i + 1
 

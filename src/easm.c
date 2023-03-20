@@ -10,7 +10,7 @@ static char *shift(int *argc, char ***argv) {
 }
 
 static void usage(FILE *stream, const char *program) {
-	fprintf(stream, "Usage: %s [-g] <input.easm> <output.bm>\n", program);
+	fprintf(stream, "Usage: %s [-g] <input.easm> <output.evm>\n", program);
 }
 
 int main(int argc, char **argv) {
@@ -66,8 +66,8 @@ int main(int argc, char **argv) {
 		* address of a jump label.
 		*
 		*/
-		for (size_t i = 0; i < easm.labels_size; ++i) {
-			fprintf(symbol_file, "%lu \t%.*s\n", easm.labels[i].word.as_u64, (int)easm.labels[i].name.count, easm.labels[i].name.data);
+		for (size_t i = 0; i < easm.bindings_size; ++i) {
+			fprintf(symbol_file, "%lu \t%.*s\n", easm.bindings[i].value.as_u64, (int)easm.bindings[i].name.count, easm.bindings[i].name.data);
 		}
 		fclose(symbol_file);
 	}

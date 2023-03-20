@@ -1,13 +1,13 @@
 #include "./examples/natives.hasm"
 
 ; only this string needs to be changed
-#label secret "Uryyb, jbeyq! Sebz EBG13."
+#const secret "Uryyb, jbeyq! Sebz EBG13."
 
 ; this small hack will take care of length of string
-#label length ""
+#const length ""
 
-#label ROT13 13
-#label MOD   26
+#const ROT13 13
+#const MOD   26
 
 ; high >= value >= low
 is_between:

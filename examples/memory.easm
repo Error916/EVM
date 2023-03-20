@@ -1,5 +1,5 @@
 #include "./examples/natives.hasm"
-#label N 256
+#const N 256
 
 #entry main
 main:

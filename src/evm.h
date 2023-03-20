@@ -37,7 +37,7 @@
 #define EVM_NATIVES_CAPACITY 1024
 #define EVM_MEMORY_CAPACITY (640 * 1000)
 
-#define EASM_LABELS_CAPACITY 1024
+#define EASM_BINDINGS_CAPACITY 1024
 #define EASM_DEFERRED_OPERANDS_CAPACITY 1024
 #define EASM_COMMENT_CHAR ';'
 #define EASM_PP_CHAR '#'
@@ -217,14 +217,17 @@ String_View arena_sv_concat2(Arena *arena, const char *a, const char *b);
 const char *arena_cstr_concat2(Arena *arena, const char *a, const char *b);
 
 typedef enum {
-    BINDING_CONST = 0,
-    BINDING_LABEL,
+    	BINDING_CONST = 0,
+    	BINDING_LABEL,
+    	BINDING_NATIVE,
 } Binding_Kind;
+
+const char *binding_kind_as_cstr(Binding_Kind kind);
 
 typedef struct {
 	Binding_Kind kind;
 	String_View name;
-	Word word;
+	Word value;
 } Binding;
 
 typedef struct {
@@ -233,8 +236,8 @@ typedef struct {
 } Deferred_Operand;
 
 typedef struct {
-	Binding labels[EASM_LABELS_CAPACITY];
-	size_t labels_size;
+	Binding bindings[EASM_BINDINGS_CAPACITY];
+	size_t bindings_size;
 
 	Deferred_Operand deferred_operands[EASM_DEFERRED_OPERANDS_CAPACITY];
 	size_t deferred_operands_size;
@@ -254,7 +257,7 @@ typedef struct {
 	size_t include_level;
 } EASM;
 
-bool easm_resolve_label(const EASM *easm, String_View name, Word *output);
+bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Binding_Kind *kind);
 bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
@@ -976,10 +979,11 @@ void *arena_alloc(Arena *arena, size_t size) {
 	return result;
 }
 
-bool easm_resolve_label(const EASM *easm, String_View name, Word *output) {
-	for (size_t i = 0; i < easm->labels_size; ++i) {
-		if (sv_eq(easm->labels[i].name, name)) {
-			*output = easm->labels[i].word;
+bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Binding_Kind *kind) {
+	for (size_t i = 0; i < easm->bindings_size; ++i) {
+		if (sv_eq(easm->bindings[i].name, name)) {
+			if (output) *output = easm->bindings[i].value;
+            		if (kind) *kind = easm->bindings[i].kind;
 			return true;
 		}
 	}
@@ -988,10 +992,9 @@ bool easm_resolve_label(const EASM *easm, String_View name, Word *output) {
 }
 
 bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind) {
-	assert(easm->labels_size < EASM_LABELS_CAPACITY);
-	Word ignore = { 0 };
-	if (easm_resolve_label(easm, name, &ignore)) return false;
-	easm->labels[easm->labels_size++] = (Binding) { .name = name, .word = word, .kind = kind };
+	assert(easm->bindings_size < EASM_BINDINGS_CAPACITY);
+	if (easm_resolve_binding(easm, name, NULL, NULL)) return false;
+	easm->bindings[easm->bindings_size++] = (Binding) { .name = name, .value = word, .kind = kind };
 	return true;
 }
 
@@ -1057,7 +1060,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 			if (token.count > 0 && token.data[0] == EASM_PP_CHAR) {
 				token.count -= 1;
 				token.data += 1;
-				if (sv_eq(token, cstr_as_sv("label"))) {
+				if (sv_eq(token, cstr_as_sv("const"))) {
 					line = sv_trim(line);
 					String_View label = sv_chop_by_delim(&line, ' ');
 					if (label.count > 0) {
@@ -1077,6 +1080,26 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						fprintf(stderr, "ERROR: label name in not provided on line %lu\n", line_number);
 						exit(1);
 					}
+				} else if (sv_eq(token, cstr_as_sv("native"))) {
+                    			line = sv_trim(line);
+                    			String_View name = sv_chop_by_delim(&line, ' ');
+                    			if (name.count > 0) {
+                        			line = sv_trim(line);
+                        			String_View value = line;
+                        			Word word = {0};
+                        			if (!easm_translate_literal(easm, value, &word)) {
+                            				fprintf(stderr, "ERROR: '%.*s' on line %lu is not a number", SV_FORMAT(value), line_number);
+                            				exit(1);
+                        			}
+
+                        			if (!easm_bind_value(easm, name, word, BINDING_NATIVE)) {
+                            				fprintf(stderr, "ERROR: name `%.*s` on line %lu is already bound\n", SV_FORMAT(name), line_number);
+                            				exit(1);
+                        			}
+                    			} else {
+                        			fprintf(stderr, "ERROR: binding name is not provided on line %lu\n", line_number);
+                        			exit(1);
+                    			}
 				} else if (sv_eq(token, cstr_as_sv("include"))) {
 					line = sv_trim(line);
 					if (line.count > 0) {
@@ -1168,18 +1191,38 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 	// Second pass
 	for (size_t i = 0; i < easm->deferred_operands_size; ++i) {
 		String_View label = easm->deferred_operands[i].label;
-		if (!easm_resolve_label(easm, label, &easm->program[easm->deferred_operands[i].addr].operand)) {
+		Inst_Addr addr = easm->deferred_operands[i].addr;
+        	Binding_Kind kind;
+		if (!easm_resolve_binding(easm, label, &easm->program[addr].operand, &kind)) {
 			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
 			exit(1);
 		}
+
+		if (easm->program[addr].type == INST_CALL && kind != BINDING_LABEL) {
+            		fprintf(stderr, "ERROR: trying to call not a label. `%.*s` is %s, but the call instructions accepts only literals or bindings.\n", SV_FORMAT(label), binding_kind_as_cstr(kind));
+            		exit(1);
+        	}
+
+        	if (easm->program[addr].type == INST_NATIVE && kind != BINDING_NATIVE) {
+            		fprintf(stderr, "ERROR: trying to invoke native function from a binding that is %s. Bindings for native functions have to be defined via `%%native` easm directive.\n", binding_kind_as_cstr(kind));
+            		exit(1);
+       	 	}
 	}
 
+	// Resolving entry point
 	if (easm->has_entry && easm->deffered_entry_binding_name.count > 0) {
 		Word output = { 0 };
-		if (!easm_resolve_label(easm, easm->deffered_entry_binding_name, &output)) {
+        	Binding_Kind kind;
+		if (!easm_resolve_binding(easm, easm->deffered_entry_binding_name, &output, &kind)) {
 			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(easm->deffered_entry_binding_name));
 			exit(1);
 		}
+
+		if (kind != BINDING_LABEL) {
+            		fprintf(stderr, "ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", binding_kind_as_cstr(kind));
+            	exit(1);
+        	}
+
 		easm->entry = output.as_u64;
 	}
 }
@@ -1196,6 +1239,17 @@ Word easm_push_string_to_memory(EASM *easm, String_View sv) {
     }
 
     return result;
+}
+
+const char *binding_kind_as_cstr(Binding_Kind kind) {
+    switch (kind) {
+        case BINDING_CONST: return "const";
+        case BINDING_LABEL: return "label";
+        case BINDING_NATIVE: return "native";
+        default:
+            UNREACHABLE("binding_kind_as_cstr: unreachable");
+            exit(0);
+    }
 }
 
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
