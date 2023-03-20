@@ -2,7 +2,7 @@
 
 set -xe
 
-make
+./build.sh
 
 ./easm2nasm ./examples/123i.easm > 123i.asm
 nasm -felf64 123i.asm
