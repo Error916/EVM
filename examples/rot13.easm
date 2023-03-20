@@ -9,11 +9,6 @@
 #label ROT13 13
 #label MOD   26
 
-#label A 65
-#label Z 90
-#label a 97
-#label z 122
-
 ; high >= value >= low
 is_between:
 	swap 3
@@ -40,7 +35,7 @@ rot13:
 
 #entry main
 main:
-    	push 0
+    	push secret
 
 loop:
 	dup 0
@@ -48,13 +43,13 @@ loop:
 
 	upper_case:
 		dup 0
-		push A
-		push Z
+		push 'A'
+		push 'Z'
 		call is_between
 		not
 		jmp_if lower_case
 
-		push A      ; lower bound
+		push 'A'      ; lower bound
 		call rot13
 
 		dup 1
@@ -65,13 +60,13 @@ loop:
 
 	lower_case:
 		dup 0
-		push a
-		push z
+		push 'a'
+		push 'z'
 		call is_between
 		not
 		jmp_if not_a_rot_char
 
-		push a      ; lower bound
+		push 'a'      ; lower bound
 		call rot13
 
 		dup 1
@@ -99,7 +94,7 @@ print:
 	push 10
 	write8
 
-	push 0
+	push secret
 	push 1
 	push length
 	plusi

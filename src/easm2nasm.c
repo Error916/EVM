@@ -4,44 +4,6 @@
 #define EVM_IMPLEMENTATION
 #include "./evm.h"
 
-static void gen_print_i64(void) {
-	printf("print_i64:\n");
-	printf("\t;; extract value from EVM stack\n");
-	printf("\tmov rsi, [stack_top]\n");
-	printf("\tsub rsi, EVM_WORD_SIZE\n");
-	printf("\tmov rax, [rsi]\n");
-	printf("\tmov [stack_top], rsi\n");
-	printf("\t;; rax contains the value we need to print\n");
-	printf("\t;; rdi is the char counter\n");
-	printf("\tmov rdi, 0\n");
-	printf("\t;; add the new line\n");
-	printf("\tdec rsp\n");
-	printf("\tinc rdi\n");
-	printf("\tmov BYTE [rsp], 10\n");
-	printf(".loop:\n");
-	printf("\txor rdx, rdx\n");
-	printf("\tmov rbx, 10\n");
-	printf("\tdiv rbx\n");
-	printf("\tadd rdx, '0'\n");
-	printf("\tdec rsp\n");
-	printf("\tinc rdi\n");
-	printf("\tmov [rsp], dl\n");
-	printf("\tcmp rax, 0\n");
-	printf("\tjne .loop\n");
-	printf("\t;; rsp - points at the begining of the buf\n");
-	printf("\t;; rdi - cointain the size of the buf\n");
-	printf("\t;; printing the buffer\n");
-	printf("\tmov rbx, rdi\n");
-	printf("\t;; write(STDOUT, buf, buf_size)\n");
-	printf("\tmov rax, SYS_WRITE\n");
-	printf("\tmov rdi, STDOUT\n");
-	printf("\tmov rsi, rsp\n");
-	printf("\tmov rdx, rbx\n");
-	printf("\tsyscall\n");
-	printf("\tadd rsp, rbx\n");
-	printf("\tret\n");
-}
-
 static void usage(FILE *f) {
 		fprintf(f, "Usage: easm2nasm <input.easm>\n");
 }
@@ -65,7 +27,6 @@ int main(int argc, char **argv) {
 	printf("%%define SYS_WRITE 1\n");
 	printf("segment .text\n");
 	printf("global _start\n");
-	gen_print_i64();
 
 	size_t jmp_if_escape_count = 0;
 	for (size_t i = 0; i < easm.program_size; ++i) {
@@ -86,7 +47,12 @@ int main(int argc, char **argv) {
 				printf("\tadd QWORD [stack_top], EVM_WORD_SIZE\n");
 			} break;
 
-			case INST_DROP: UNIMPLEMENTED("INST_DROP");
+			case INST_DROP: {
+				printf("\t;; drop\n");
+				printf("\tmov rsi, [stack_top]\n");
+            			printf("\tsub rsi, EVM_WORD_SIZE\n");
+            			printf("\tmov [stack_top], rsi\n");
+			} break;
 
 			case INST_DUP: {
 				printf("\t;; dup %lu\n", inst.operand.as_u64);
@@ -138,16 +104,48 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_MULTI: UNIMPLEMENTED("INST_MULTI");
-			case INST_DIVI: UNIMPLEMENTED("INST_DIVI");
-			case INST_MODI: UNIMPLEMENTED("INST_MODI");
+
+			case INST_DIVI: {
+            			printf("\t;; divi\n");
+            			printf("\tmov rsi, [stack_top]\n");
+            			printf("\tsub rsi, EVM_WORD_SIZE\n");
+            			printf("\tmov rbx, [rsi]\n");
+            			printf("\tsub rsi, EVM_WORD_SIZE\n");
+            			printf("\tmov rax, [rsi]\n");
+            			printf("\txor rdx, rdx\n");
+            			printf("\tidiv rbx\n");
+            			printf("\tmov [rsi], rax\n");
+            			printf("\tadd rsi, EVM_WORD_SIZE\n");
+            			printf("\tmov [stack_top], rsi\n");
+			} break;
+
+			case INST_MODI: {
+				printf("\t;; modi\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rbx, [rsi]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\txor rdx, rdx\n");
+				printf("\tidiv rbx\n");
+				printf("\tmov [rsi], rdx\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+			} break;
+
 			case INST_PLUSF: UNIMPLEMENTED("INST_PLUSF");
 			case INST_MINUSF: UNIMPLEMENTED("INST_MINUSF");
 			case INST_MULTF: UNIMPLEMENTED("INST_MULTF");
 			case INST_DIVF: UNIMPLEMENTED("INST_DIVF");
-			case INST_JMP: UNIMPLEMENTED("INST_JMP");
+			case INST_JMP: {
+				printf("\t;; jmp\n");
+				printf("\tmov rdi, inst_map\n");
+				printf("\tadd rdi, EVM_WORD_SIZE * %lu\n", inst.operand.as_u64);
+				printf("\tjmp [rdi]\n");
+			} break;
 
 			case INST_JMP_IF: {
-				printf("\t;; TODO: jmp_if %lu\n", inst.operand.as_u64);
+				printf("\t;; jmp_if %lu\n", inst.operand.as_u64);
 				printf("\tmov rsi, [stack_top]\n");
 				printf("\tsub rsi, EVM_WORD_SIZE\n");
 				printf("\tmov rax, [rsi]\n");
@@ -161,13 +159,45 @@ int main(int argc, char **argv) {
 				jmp_if_escape_count += 1;
 			} break;
 
-			case INST_RET: UNIMPLEMENTED("INST_RET");
-			case INST_CALL: UNIMPLEMENTED("INST_CALL");
+			case INST_RET: {
+				printf("\t;; ret\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\tmov rbx, EVM_WORD_SIZE\n");
+				printf("\tmul rbx\n");
+				printf("\tadd rax, inst_map\n");
+				printf("\tmov [stack_top], rsi\n");
+				printf("\tjmp [rax]\n");
+			} break;
+
+			case INST_CALL: {
+				printf("\t;; call\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tmov QWORD [rsi], %zu\n", i + 1);
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+				printf("\tmov rdi, inst_map\n");
+				printf("\tadd rdi, EVM_WORD_SIZE * %lu\n", inst.operand.as_u64);
+				printf("\tjmp [rdi]\n");
+			} break;
 
 			case INST_NATIVE: {
 				if (inst.operand.as_u64 == 3) {
 					printf("\t;; native print_i64\n");
 					printf("\tcall print_i64\n");
+				} else if (inst.operand.as_u64 == 7) {
+					printf("\t;; native write\n");
+					printf("\tmov r11, [stack_top]\n");
+					printf("\tsub r11, EVM_WORD_SIZE\n");
+					printf("\tmov rdx, [r11]\n");
+					printf("\tsub r11, EVM_WORD_SIZE\n");
+					printf("\tmov rsi, [r11]\n");
+					printf("\tadd rsi, memory\n");
+					printf("\tmov rdi, STDOUT\n");
+					printf("\tmov rax, SYS_WRITE\n");
+					printf("\tmov [stack_top], r11\n");
+					printf("\tsyscall\n");
 				} else UNIMPLEMENTED("Unsupported native function");
 			} break;
 
@@ -214,11 +244,34 @@ int main(int argc, char **argv) {
 			case INST_SHR: UNIMPLEMENTED("INST_SHR");
 			case INST_SHL: UNIMPLEMENTED("INST_SHL");
 			case INST_NOTB: UNIMPLEMENTED("INST_NOTB");
-			case INST_READ8: UNIMPLEMENTED("INST_READ8");
+
+			case INST_READ8: {
+				printf("\t;; read8\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov rsi, [r11]\n");
+				printf("\tadd rsi, memory\n");
+				printf("\txor rax, rax\n");
+				printf("\tmov al, BYTE [rsi]\n");
+				printf("\tmov [r11], rax\n");
+			} break;
+
 			case INST_READ16: UNIMPLEMENTED("INST_READ16");
 			case INST_READ32: UNIMPLEMENTED("INST_READ32");
 			case INST_READ64: UNIMPLEMENTED("INST_READ64");
-			case INST_WRITE8: UNIMPLEMENTED("INST_WRITE8");
+
+			case INST_WRITE8: {
+				printf("\t;; write8\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov rsi, [r11]\n");
+				printf("\tadd rsi, memory\n");
+				printf("\tmov BYTE [rsi], al\n");
+				printf("\tmov [stack_top], r11\n");
+			} break;
+
 			case INST_WRITE16: UNIMPLEMENTED("INST_WRITE16");
 			case INST_WRITE32: UNIMPLEMENTED("INST_WRITE32");
 			case INST_WRITE64: UNIMPLEMENTED("INST_WRITE64");
@@ -246,6 +299,23 @@ int main(int argc, char **argv) {
     	for (size_t i = 0; i < easm.program_size; ++i) {
         	printf(" inst_%zu,", i);
     	}
+	printf("\n");
+    	printf("memory:\n");
+#define ROW_SIZE 10
+#define ROW_COUNT(size) ((size + ROW_SIZE - 1) / ROW_SIZE)
+    	for (size_t row = 0; row < ROW_COUNT(easm.memory_size); ++row) {
+        	printf("\tdb");
+        	for (size_t col = 0; col < ROW_SIZE && row * ROW_SIZE + col < easm.memory_size; ++col) {
+        		printf(" %u,", easm.memory[row * ROW_SIZE + col]);
+        	}
+        	printf("\n");
+    	}
+    	// TODO: warning: uninitialized space declared in non-BSS section `.data': zeroing
+    	//   Is it possible to get rid of it? Not really suppress it, but just let nasm know
+    	//   that I know what I'm doing.
+    	printf("\ttimes %zu db 0", EVM_MEMORY_CAPACITY - easm.memory_size);
+#undef ROW_SIZE
+#undef ROW_COUNT
     	printf("\n");
 	printf("segment .bss\n");
 	printf("stack: resq EVM_STACK_CAPACITY\n");

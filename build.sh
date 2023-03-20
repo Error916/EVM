@@ -12,3 +12,6 @@ $CC $CFLAGS -o deasm src/deasm.c $LIBS
 $CC $CFLAGS -o edbug src/edbug.c $LIBS
 $CC $CFLAGS -o easm2nasm src/easm2nasm.c $LIBS
 
+for example in `find examples/ -name \*.easm | sed "s/\.easm//"`; do
+    ./easm -g "$example.easm" "build/$example.evm"
+done
