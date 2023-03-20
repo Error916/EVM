@@ -14,7 +14,7 @@ loop:
     push 1
     shr
     xor
-    native print_u64
+    call print_u64
 
     push 1
     plusi

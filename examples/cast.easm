@@ -8,7 +8,7 @@ native print_i64
 
 push 3.1415
 f2u
-native print_u64
+call print_u64
 
 push -1.0
 f2i
@@ -16,7 +16,7 @@ native print_i64
 
 push -1.0
 f2u
-native print_u64
+call print_u64
 
 push 69
 i2f
