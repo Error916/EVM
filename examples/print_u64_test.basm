@@ -1,0 +1,7 @@
+#include "./examples/natives.hasm"
+
+#entry main
+main:
+	push 1234567890
+	call print_u64_
+	halt

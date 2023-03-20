@@ -21,6 +21,6 @@ loop:
 
 	push 0
 	push N
-	native print_memory
+	native dump_memory
 
 	halt

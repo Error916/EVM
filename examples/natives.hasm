@@ -4,5 +4,64 @@
 #label print_i64 3
 #label print_f64 4
 #label print_ptr 5
-#label print_memory 6
+#label dump_memory 6
 #label write 7
+
+#label print_memory "******************************"
+
+print_u64_:
+	swap 1
+	push print_memory
+
+print_u64_loop:
+	;; x = x % 10 + '0'
+	dup 1
+	push 10
+	modi
+	push '0'
+	plusi
+
+	;; write x in memory
+	dup 1
+	swap 1
+	write8
+
+	;; print_memory += 1
+	push 1
+	plusi
+
+	;; x = x / 10
+	swap 1
+	push 10
+	divi
+	swap 1
+
+	;; x == 0
+	dup 1
+	push 0
+	eqi
+	not
+	jmp_if print_u64_loop
+
+	;; add new line
+	dup 0
+	push 10
+	write8
+
+	;; print_memory += 1
+	push 1
+	plusi
+
+	;; get size of buffer
+	push print_memory
+	swap 1
+	minusi
+
+	;; print the numeber
+	push print_memory
+	swap 1
+	native write
+
+	drop
+
+	ret
