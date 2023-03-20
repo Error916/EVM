@@ -103,7 +103,11 @@ int main(int argc, char **argv) {
 				printf("\tmov [stack_top], rsi\n");
 			} break;
 
-			case INST_MULTI: UNIMPLEMENTED("INST_MULTI");
+			case INST_MULTI: {
+            			printf("\t;; FIXME: multi\n");
+        		} break;
+
+			case INST_MULTU: UNIMPLEMENTED("INST_MULTU");
 
 			case INST_DIVI: {
             			printf("\t;; divi\n");
@@ -119,6 +123,20 @@ int main(int argc, char **argv) {
             			printf("\tmov [stack_top], rsi\n");
 			} break;
 
+			case INST_DIVU: {
+				printf("\t;; divi\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rbx, [rsi]\n");
+				printf("\tsub rsi, EVM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\txor rdx, rdx\n");
+				printf("\tdiv rbx\n");
+				printf("\tmov [rsi], rax\n");
+				printf("\tadd rsi, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+        		} break;
+
 			case INST_MODI: {
 				printf("\t;; modi\n");
 				printf("\tmov rsi, [stack_top]\n");
@@ -132,6 +150,20 @@ int main(int argc, char **argv) {
 				printf("\tadd rsi, EVM_WORD_SIZE\n");
 				printf("\tmov [stack_top], rsi\n");
 			} break;
+
+			case INST_MODU: {
+				printf("\t;; modi\n");
+				printf("\tmov rsi, [stack_top]\n");
+				printf("\tsub rsi, BM_WORD_SIZE\n");
+				printf("\tmov rbx, [rsi]\n");
+				printf("\tsub rsi, BM_WORD_SIZE\n");
+				printf("\tmov rax, [rsi]\n");
+				printf("\txor rdx, rdx\n");
+				printf("\tdiv rbx\n");
+				printf("\tmov [rsi], rdx\n");
+				printf("\tadd rsi, BM_WORD_SIZE\n");
+				printf("\tmov [stack_top], rsi\n");
+        		} break;
 
 			case INST_PLUSF: UNIMPLEMENTED("INST_PLUSF");
 			case INST_MINUSF: UNIMPLEMENTED("INST_MINUSF");
@@ -227,11 +259,30 @@ int main(int argc, char **argv) {
 				printf("\tmov [stack_top], rsi\n");
 			} break;
 
-			case INST_GEI: UNIMPLEMENTED("INST_GEI");
-			case INST_GTI: UNIMPLEMENTED("INST_GTI");
-			case INST_LEI: UNIMPLEMENTED("INST_LEI");
+			case INST_GEI: {
+            			printf("\t;; FIXME: gei\n");
+        		} break;
+
+			case INST_GTI: {
+            			printf("\t;; FIXME: gti\n");
+        		} break;
+
+			case INST_LEI: {
+            			printf("\t;; FIXME: lei\n");
+        		} break;
+
 			case INST_LTI: UNIMPLEMENTED("INST_LTI");
 			case INST_NEI: UNIMPLEMENTED("INST_NEI");
+
+        		case INST_EQU: {
+            			printf("\t;; FIXME: equ\n");
+        		} break;
+
+			case INST_GEU: UNIMPLEMENTED("INST_GEU");
+			case INST_GTU: UNIMPLEMENTED("INST_GTU");
+			case INST_LEU: UNIMPLEMENTED("INST_LEU");
+			case INST_LTU: UNIMPLEMENTED("INST_LTU");
+			case INST_NEU: UNIMPLEMENTED("INST_NEU");
 			case INST_EQF: UNIMPLEMENTED("INST_EQF");
 			case INST_GEF: UNIMPLEMENTED("INST_GEF");
 			case INST_GTF: UNIMPLEMENTED("INST_GTF");

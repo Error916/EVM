@@ -100,6 +100,9 @@ typedef enum {
 	INST_MULTI,
 	INST_DIVI,
 	INST_MODI,
+	INST_MULTU,
+    	INST_DIVU,
+    	INST_MODU,
 	INST_PLUSF,
 	INST_MINUSF,
 	INST_MULTF,
@@ -122,6 +125,12 @@ typedef enum {
 	INST_LEF,
 	INST_LTF,
 	INST_NEF,
+	INST_EQU,
+	INST_GEU,
+	INST_GTU,
+	INST_LEU,
+	INST_LTU,
+	INST_NEU,
 	INST_ANDB,
 	INST_ORB,
 	INST_XOR,
@@ -303,6 +312,9 @@ const char *inst_name(Inst_Type type) {
 		case INST_MULTI:       	return "multi";
 		case INST_DIVI:        	return "divi";
 		case INST_MODI:		return "modi";
+		case INST_MULTU:   	return "multu";
+		case INST_DIVU:    	return "divu";
+    		case INST_MODU:    	return "modu";
 		case INST_PLUSF:       	return "plusf";
 		case INST_MINUSF:      	return "minusf";
 		case INST_MULTF:       	return "multf";
@@ -313,6 +325,12 @@ const char *inst_name(Inst_Type type) {
 		case INST_CALL:		return "call";
 		case INST_NATIVE:	return "native";
 		case INST_NOT:		return "not";
+		case INST_EQU:     	return "equ";
+    		case INST_GEU:     	return "geu";
+    		case INST_GTU:     	return "gtu";
+    		case INST_LEU:     	return "leu";
+    		case INST_LTU:     	return "ltu";
+    		case INST_NEU:     	return "neu";
 		case INST_EQF:     	return "eqf";
     		case INST_GEF:     	return "gef";
     		case INST_GTF:     	return "gtf";
@@ -361,6 +379,9 @@ int inst_has_operand(Inst_Type type) {
 		case INST_MULTI:       	return 0;
 		case INST_DIVI:        	return 0;
 		case INST_MODI:		return 0;
+		case INST_MULTU:   	return 0;
+    		case INST_DIVU:    	return 0;
+    		case INST_MODU:    	return 0;
 		case INST_PLUSF:       	return 0;
 		case INST_MINUSF:      	return 0;
 		case INST_MULTF:       	return 0;
@@ -371,6 +392,12 @@ int inst_has_operand(Inst_Type type) {
 		case INST_CALL:		return 1;
 		case INST_NATIVE:	return 1;
 		case INST_NOT:		return 0;
+		case INST_EQU:     	return 0;
+    		case INST_GEU:     	return 0;
+    		case INST_GTU:     	return 0;
+    		case INST_LEU:     	return 0;
+    		case INST_LTU:     	return 0;
+    		case INST_NEU:     	return 0;
 		case INST_EQF:     	return 0;
     		case INST_GEF:     	return 0;
     		case INST_GTF:     	return 0;
@@ -471,15 +498,29 @@ Err evm_execute_inst(EVM *evm) {
 		break;
 
 		case INST_MULTI:
+		        BINARY_OP(evm, i64, i64, *);
+        	break;
+
+    		case INST_MULTU:
 			BINARY_OP(evm, u64, u64, *);
 		break;
 
 		case INST_DIVI:
+		        if (evm->stack[evm->stack_size - 1].as_i64 == 0) return ERR_DIV_BY_ZERO;
+        		BINARY_OP(evm, i64, i64, /);
+    		break;
+
+    		case INST_DIVU:
 			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return ERR_DIV_BY_ZERO;
 			BINARY_OP(evm, u64, u64, /);
 		break;
 
 		case INST_MODI:
+		        if (evm->stack[evm->stack_size - 1].as_i64 == 0) return ERR_DIV_BY_ZERO;
+        		BINARY_OP(evm, i64, i64, %);
+    		break;
+
+    		case INST_MODU:
 			if (evm->stack[evm->stack_size - 1].as_u64 == 0) return ERR_DIV_BY_ZERO;
 			BINARY_OP(evm, u64, u64, %);
 		break;
@@ -539,6 +580,30 @@ Err evm_execute_inst(EVM *evm) {
 			evm->ip += 1;
 		break;
 
+		case INST_EQU:
+        		BINARY_OP(evm, u64, u64, ==);
+        	break;
+
+    		case INST_GEU:
+        		BINARY_OP(evm, u64, u64, >=);
+        	break;
+
+    		case INST_GTU:
+        		BINARY_OP(evm, u64, u64, >);
+        	break;
+
+    		case INST_LEU:
+        		BINARY_OP(evm, u64, u64, <=);
+        	break;
+
+    		case INST_LTU:
+        		BINARY_OP(evm, u64, u64, <);
+        	break;
+
+    		case INST_NEU:
+        		BINARY_OP(evm, u64, u64, !=);
+        	break;
+
 		case INST_EQF:
 			BINARY_OP(evm, f64, u64, ==);
 		break;
@@ -564,27 +629,27 @@ Err evm_execute_inst(EVM *evm) {
         	break;
 
     		case INST_EQI:
-        		BINARY_OP(evm, u64, u64, ==);
+        		BINARY_OP(evm, i64, u64, ==);
         	break;
 
 		case INST_GEI:
-		        BINARY_OP(evm, u64, u64, >=);
+		        BINARY_OP(evm, i64, u64, >=);
         	break;
 
 		case INST_GTI:
-        		BINARY_OP(evm, u64, u64, >);
+        		BINARY_OP(evm, i64, u64, >);
         	break;
 
     		case INST_LEI:
-        		BINARY_OP(evm, u64, u64, <=);
+        		BINARY_OP(evm, i64, u64, <=);
         	break;
 
     		case INST_LTI:
-        		BINARY_OP(evm, u64, u64, <);
+        		BINARY_OP(evm, i64, u64, <);
         	break;
 
     		case INST_NEI:
-        		BINARY_OP(evm, u64, u64, !=);
+        		BINARY_OP(evm, i64, u64, !=);
 		break;
 
 		case INST_HALT:

@@ -16,9 +16,14 @@ int main(int argc, char **argv) {
     	evm_load_program_from_file(&evm, input_file_path);
 
 	for (Inst_Addr i = 0; i < evm.program_size; ++i) {
-		printf("%s", inst_name(evm.program[i].type));
+		if (i == evm.ip) printf("entry:\n");
+		printf("\t%s", inst_name(evm.program[i].type));
         	if (inst_has_operand(evm.program[i].type)) {
-            		printf(" %ld", evm.program[i].operand.as_i64);
+            		printf(" %lu  ;; i64: %ld, f64: %lf, ptr: %p",
+					evm.program[i].operand.as_u64,
+					evm.program[i].operand.as_i64,
+					evm.program[i].operand.as_f64,
+					evm.program[i].operand.as_ptr);
         	}
 		printf("\n");
 	}
