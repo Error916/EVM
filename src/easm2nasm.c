@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 	for (size_t i = 0; i < easm.program_size; ++i) {
 		Inst inst = easm.program[i];
 
-		if (i == basm.entry) {
+		if (i == easm.entry) {
             		printf("_start:\n");
         	}
 

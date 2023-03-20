@@ -1128,7 +1128,15 @@ Word easm_push_string_to_memory(EASM *easm, String_View sv) {
 }
 
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output) {
-	if (sv.count >= 2 && *sv.data == '"' && sv.data[sv.count - 1] == '"') {
+    	if (sv.count >= 2 && *sv.data == '\'' && sv.data[sv.count - 1] == '\'') {
+        	if (sv.count - 2 != 1) {
+            		return false;
+        	}
+
+        	*output = word_u64((uint64_t) sv.data[1]);
+
+        	return true;
+	} else if (sv.count >= 2 && *sv.data == '"' && sv.data[sv.count - 1] == '"') {
 		// TODO: string literals don't support escaped characters
         	sv.data += 1;
         	sv.count -= 2;
