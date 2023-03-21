@@ -262,7 +262,7 @@ typedef struct {
 	Inst_Addr entry;
 	bool has_entry;
 	String_View deferred_entry_binding_name;
-	File_Location deferred_entry_location;
+	File_Location entry_location;
 
     	uint8_t memory[EVM_MEMORY_CAPACITY];
     	size_t memory_size;
@@ -1145,6 +1145,8 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 				} else if (sv_eq(token, sv_form_cstr("entry"))) {
 					if (easm->has_entry) {
 						fprintf(stderr, FL_Fmt": ERROR: entry point has been already set!\n", FL_Arg(location));
+						fprintf(stderr, FL_Fmt": NOTE: the first entry point\n", FL_Arg(easm->entry_location));
+						exit(1);
 					}
 
 					line = sv_trim(line);
@@ -1157,12 +1159,12 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 
 					if (!easm_translate_literal(easm, line, &entry)) {
 						easm->deferred_entry_binding_name = line;
-						easm->deferred_entry_location = location;
 					} else {
 						easm->entry = entry.as_u64;
 					}
 
 					easm->has_entry = true;
+					easm->entry_location = location;
 			 	} else {
 					fprintf(stderr, FL_Fmt": ERROR: unknown pre-processor directive '"SV_Fmt"'\n", FL_Arg(location), SV_Arg(token));
 					exit(1);
@@ -1234,12 +1236,12 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 		Word output = { 0 };
         	Binding_Kind kind;
 		if (!easm_resolve_binding(easm, easm->deferred_entry_binding_name, &output, &kind)) {
-			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->deferred_entry_location), SV_Arg(easm->deferred_entry_binding_name));
+			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->entry_location), SV_Arg(easm->deferred_entry_binding_name));
 			exit(1);
 		}
 
 		if (kind != BINDING_LABEL) {
-            		fprintf(stderr, FL_Fmt": ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", FL_Arg(easm->deferred_entry_location), binding_kind_as_cstr(kind));
+            		fprintf(stderr, FL_Fmt": ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", FL_Arg(easm->entry_location), binding_kind_as_cstr(kind));
             		exit(1);
         	}
 

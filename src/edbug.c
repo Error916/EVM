@@ -68,7 +68,7 @@ Edb_Err edb_continue(Edb_State *state) {
         	if (!bp->is_broken && bp->is_enabled) {
             		fprintf(stdout, "Hit breakpoint at %lu", state->evm.ip);
             		if (state->labels[state->evm.ip].data)
-                		fprintf(stdout, " label '%.*s'", (int)state->labels[state->evm.ip].count, state->labels[state->evm.ip].data);
+                		fprintf(stdout, " label '"SV_Fmt"'", SV_Arg(state->labels[state->evm.ip]));
 
             		fprintf(stdout, "\n");
             		bp->is_broken = 1;
