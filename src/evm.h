@@ -50,9 +50,15 @@ typedef struct {
 	const char *data;
 } String_View;
 
-#define SV_FORMAT(sv) (int)sv.count, sv.data
+// printf macros for String_View
+#define SV_Fmt "%.*s"
+#define SV_Arg(sv) (int) sv.count, sv.data
+// USAGE:
+//   String_View name = ...;
+//   printf("Name: %"SV_Fmt"\n", SV_Arg(name));
+//   printf("Name: "SV_Fmt"\n", SV_Arg(name));
 
-String_View cstr_as_sv(const char *cstr);
+String_View sv_form_cstr(const char *cstr);
 bool sv_eq(String_View a, String_View b);
 uint64_t sv_to_u64(String_View sv);
 String_View sv_trim_left(String_View sv);
@@ -231,8 +237,17 @@ typedef struct {
 } Binding;
 
 typedef struct {
+    String_View file_path;
+    int line_number;
+} File_Location;
+
+#define FL_Fmt SV_Fmt":%d"
+#define FL_Arg(location) SV_Arg(location.file_path), location.line_number
+
+typedef struct {
 	Inst_Addr addr;
 	String_View label;
+	File_Location location;
 } Deferred_Operand;
 
 typedef struct {
@@ -246,7 +261,8 @@ typedef struct {
     	uint64_t program_size;
 	Inst_Addr entry;
 	bool has_entry;
-	String_View deffered_entry_binding_name;
+	String_View deferred_entry_binding_name;
+	File_Location deferred_entry_location;
 
     	uint8_t memory[EVM_MEMORY_CAPACITY];
     	size_t memory_size;
@@ -259,7 +275,7 @@ typedef struct {
 
 bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Binding_Kind *kind);
 bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind);
-void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name);
+void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name, File_Location location);
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
 void easm_save_to_file(EASM *easm, const char *output_file_path);
 Word easm_push_string_to_memory(EASM *easm, String_View sv);
@@ -445,7 +461,7 @@ int inst_has_operand(Inst_Type type) {
 
 bool inst_by_name(String_View name, Inst_Type *type) {
 	for (Inst_Type t = (Inst_Type) 0; t < EASM_NUMBER_OF_INSTS; ++t) {
-		if (sv_eq(cstr_as_sv(inst_name(t)), name)) {
+		if (sv_eq(sv_form_cstr(inst_name(t)), name)) {
 			*type = t;
 			return true;
 		}
@@ -898,7 +914,7 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	fclose(f);
 }
 
-String_View cstr_as_sv(const char *cstr) {
+String_View sv_form_cstr(const char *cstr) {
 	return (String_View) {
 		.count = strlen(cstr),
 		.data = cstr,
@@ -998,11 +1014,12 @@ bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind)
 	return true;
 }
 
-void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View label) {
+void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View label, File_Location location) {
 	assert(easm->deferred_operands_size < EASM_DEFERRED_OPERANDS_CAPACITY);
 	easm->deferred_operands[easm->deferred_operands_size++] = (Deferred_Operand) {
 		.addr = addr,
 		.label = label,
+		.location = location,
 	};
 }
 
@@ -1046,13 +1063,15 @@ void easm_save_to_file(EASM *easm, const char *file_path) {
 void easm_translate_source(EASM *easm, String_View input_file_path) {
 	String_View original_source = arena_slurp_file(&easm->arena, input_file_path);
 	String_View source = original_source;
-	size_t line_number = 0;
+	File_Location location = {
+        	.file_path = input_file_path,
+    	};
 
 	// First pass
 	while (source.count > 0) {
 		String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
 		line = sv_trim(sv_chop_by_delim(&line, EASM_COMMENT_CHAR));
-		line_number += 1;
+		location.line_number += 1;
 		if (line.count > 0) {
 			String_View token = sv_trim(sv_chop_by_delim(&line, ' '));
 
@@ -1060,7 +1079,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 			if (token.count > 0 && token.data[0] == EASM_PP_CHAR) {
 				token.count -= 1;
 				token.data += 1;
-				if (sv_eq(token, cstr_as_sv("const"))) {
+				if (sv_eq(token, sv_form_cstr("const"))) {
 					line = sv_trim(line);
 					String_View label = sv_chop_by_delim(&line, ' ');
 					if (label.count > 0) {
@@ -1068,19 +1087,19 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						String_View value = line;
 						Word word = { 0 };
 						if (!easm_translate_literal(easm, value, &word)) {
-							fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(value), line_number);
+							fprintf(stderr, FL_Fmt": ERROR: unknown pre-processor directive '"SV_Fmt"'\n", FL_Arg(location), SV_Arg(value));
 							exit(1);
 						}
 
 						if (!easm_bind_value(easm, label, word, BINDING_CONST)) {
-							fprintf(stderr, "ERROR: label '%.*s' is allready define\n", SV_FORMAT(label));
+							fprintf(stderr, FL_Fmt": ERROR: label '"SV_Fmt"' is allready define\n", FL_Arg(location), SV_Arg(label));
 							exit(1);
 						}
 					} else {
-						fprintf(stderr, "ERROR: label name in not provided on line %lu\n", line_number);
+						fprintf(stderr, FL_Fmt": ERROR: label name in not provided\n", FL_Arg(location));
 						exit(1);
 					}
-				} else if (sv_eq(token, cstr_as_sv("native"))) {
+				} else if (sv_eq(token, sv_form_cstr("native"))) {
                     			line = sv_trim(line);
                     			String_View name = sv_chop_by_delim(&line, ' ');
                     			if (name.count > 0) {
@@ -1088,19 +1107,19 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
                         			String_View value = line;
                         			Word word = {0};
                         			if (!easm_translate_literal(easm, value, &word)) {
-                            				fprintf(stderr, "ERROR: '%.*s' on line %lu is not a number", SV_FORMAT(value), line_number);
+                            				fprintf(stderr, FL_Fmt": ERROR: '"SV_Fmt"' is not a number", FL_Arg(location), SV_Arg(value));
                             				exit(1);
                         			}
 
                         			if (!easm_bind_value(easm, name, word, BINDING_NATIVE)) {
-                            				fprintf(stderr, "ERROR: name `%.*s` on line %lu is already bound\n", SV_FORMAT(name), line_number);
+                            				fprintf(stderr, FL_Fmt": ERROR: name `"SV_Fmt"` is already bound\n", FL_Arg(location), SV_Arg(name));
                             				exit(1);
                         			}
                     			} else {
-                        			fprintf(stderr, "ERROR: binding name is not provided on line %lu\n", line_number);
+                        			fprintf(stderr, FL_Fmt": ERROR: binding name is not provided\n", FL_Arg(location));
                         			exit(1);
                     			}
-				} else if (sv_eq(token, cstr_as_sv("include"))) {
+				} else if (sv_eq(token, sv_form_cstr("include"))) {
 					line = sv_trim(line);
 					if (line.count > 0) {
 						if (line.data[0] == '"' && line.data[line.count - 1] == '"') {
@@ -1108,7 +1127,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 							line.data += 1;
 
 							if (easm->include_level + 1 >= EASM_MAX_INCLUDE_LEVEL) {
-								fprintf(stderr, "ERROR: exceeded maximum include level\n");
+								fprintf(stderr, FL_Fmt": ERROR: exceeded maximum include level\n", FL_Arg(location));
 								exit(1);
 							}
 
@@ -1116,35 +1135,36 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 							easm_translate_source(easm, line);
 							easm->include_level -= 1;
 						} else {
-							fprintf(stderr, "ERROR: path must be surrounded by quotation marks on line %lu\n", line_number);
+							fprintf(stderr, FL_Fmt": ERROR: path must be surrounded by quotation marks\n", FL_Arg(location));
 							exit(1);
 						}
 					} else {
-						fprintf(stderr, "ERROR: include file path is not provided on line %lu\n", line_number);
+						fprintf(stderr, FL_Fmt": ERROR: include file path is not provided\n", FL_Arg(location));
 						exit(1);
 					}
-				} else if (sv_eq(token, cstr_as_sv("entry"))) {
+				} else if (sv_eq(token, sv_form_cstr("entry"))) {
 					if (easm->has_entry) {
-						fprintf(stderr, "ERROR: on line %lu entry point has been already set!\n", line_number);
+						fprintf(stderr, FL_Fmt": ERROR: entry point has been already set!\n", FL_Arg(location));
 					}
 
 					line = sv_trim(line);
 					if (line.count == 0) {
-						fprintf(stderr, "ERROR: entry point is not specified on line %lu\n", line_number);
+						fprintf(stderr, FL_Fmt": ERROR: entry point is not specified\n", FL_Arg(location));
 						exit(1);
 					}
 
 					Word entry = { 0 };
 
 					if (!easm_translate_literal(easm, line, &entry)) {
-						easm->deffered_entry_binding_name = line;
+						easm->deferred_entry_binding_name = line;
+						easm->deferred_entry_location = location;
 					} else {
 						easm->entry = entry.as_u64;
 					}
 
 					easm->has_entry = true;
 			 	} else {
-					fprintf(stderr, "ERROR: unknown pre-processor directive '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
+					fprintf(stderr, FL_Fmt": ERROR: unknown pre-processor directive '"SV_Fmt"'\n", FL_Arg(location), SV_Arg(token));
 					exit(1);
 				}
 			} else {
@@ -1155,7 +1175,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						.data = token.data,
 					};
 					if (!easm_bind_value(easm, label, word_u64(easm->program_size), BINDING_LABEL)) {
-						fprintf(stderr, "ERROR: label '%.*s' on line %lu is allready define\n", SV_FORMAT(label), line_number);
+						fprintf(stderr, FL_Fmt": ERROR: label '"SV_Fmt"' is allready define\n", FL_Arg(location), SV_Arg(label));
 						exit(1);
 					}
 					token = sv_trim(sv_chop_by_delim(&line, ' '));
@@ -1171,16 +1191,16 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						easm->program[easm->program_size].type = inst_type;
 						if (inst_has_operand(inst_type)) {
 							if (operand.count == 0) {
-								fprintf(stderr, "ERROR: instruction '%.*s' requires an operand on line %lu\n", SV_FORMAT(token), line_number);
+								fprintf(stderr, FL_Fmt": ERROR: instruction '"SV_Fmt"' requires an operand\n", FL_Arg(location), SV_Arg(token));
 								exit(1);
 							}
 							if (!easm_translate_literal(easm, operand, &easm->program[easm->program_size].operand)) {
-								easm_push_deferred_operand(easm, easm->program_size, operand);
+								easm_push_deferred_operand(easm, easm->program_size, operand, location);
 							}
 						}
 						easm->program_size += 1;
 					} else {
-						fprintf(stderr, "ERROR: unknown instruction '%.*s' on line %lu\n", SV_FORMAT(token), line_number);
+						fprintf(stderr, FL_Fmt": ERROR: unknown instruction '"SV_Fmt"'\n", FL_Arg(location), SV_Arg(token));
 						exit(1);
 					}
 				}
@@ -1194,33 +1214,33 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 		Inst_Addr addr = easm->deferred_operands[i].addr;
         	Binding_Kind kind;
 		if (!easm_resolve_binding(easm, label, &easm->program[addr].operand, &kind)) {
-			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(label));
+			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->deferred_operands[i].location), SV_Arg(label));
 			exit(1);
 		}
 
 		if (easm->program[addr].type == INST_CALL && kind != BINDING_LABEL) {
-            		fprintf(stderr, "ERROR: trying to call not a label. `%.*s` is %s, but the call instructions accepts only literals or bindings.\n", SV_FORMAT(label), binding_kind_as_cstr(kind));
+            		fprintf(stderr, FL_Fmt": ERROR: trying to call not a label. `"SV_Fmt"` is %s, but the call instructions accepts only literals or bindings.\n", FL_Arg(easm->deferred_operands[i].location), SV_Arg(label), binding_kind_as_cstr(kind));
             		exit(1);
         	}
 
         	if (easm->program[addr].type == INST_NATIVE && kind != BINDING_NATIVE) {
-            		fprintf(stderr, "ERROR: trying to invoke native function from a binding that is %s. Bindings for native functions have to be defined via `%%native` easm directive.\n", binding_kind_as_cstr(kind));
+            		fprintf(stderr, FL_Fmt": ERROR: trying to invoke native function from a binding that is %s. Bindings for native functions have to be defined via `%%native` easm directive.\n", FL_Arg(easm->deferred_operands[i].location), binding_kind_as_cstr(kind));
             		exit(1);
        	 	}
 	}
 
 	// Resolving entry point
-	if (easm->has_entry && easm->deffered_entry_binding_name.count > 0) {
+	if (easm->has_entry && easm->deferred_entry_binding_name.count > 0) {
 		Word output = { 0 };
         	Binding_Kind kind;
-		if (!easm_resolve_binding(easm, easm->deffered_entry_binding_name, &output, &kind)) {
-			fprintf(stderr, "ERROR: unknown label '%.*s'\n", SV_FORMAT(easm->deffered_entry_binding_name));
+		if (!easm_resolve_binding(easm, easm->deferred_entry_binding_name, &output, &kind)) {
+			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->deferred_entry_location), SV_Arg(easm->deferred_entry_binding_name));
 			exit(1);
 		}
 
 		if (kind != BINDING_LABEL) {
-            		fprintf(stderr, "ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", binding_kind_as_cstr(kind));
-            	exit(1);
+            		fprintf(stderr, FL_Fmt": ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", FL_Arg(easm->deferred_entry_location), binding_kind_as_cstr(kind));
+            		exit(1);
         	}
 
 		easm->entry = output.as_u64;

@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
 
 	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
 	static EASM easm = { 0 };
-	easm_translate_source(&easm, cstr_as_sv(argv[1]));
+	easm_translate_source(&easm, sv_form_cstr(argv[1]));
 
 	printf("BITS 64\n");
 	printf("%%define EVM_STACK_CAPACITY %d\n", EVM_STACK_CAPACITY);

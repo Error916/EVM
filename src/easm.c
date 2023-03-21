@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
 	static EASM easm = { 0 };
 
-	easm_translate_source(&easm, cstr_as_sv(input_file_path));
+	easm_translate_source(&easm, sv_form_cstr(input_file_path));
 
 	if (!easm.has_entry) {
 		fprintf(stderr, "%s: ERROR: entry point for EVM not provided. Use preprocessor directive #entry to provide the entry point\n", input_file_path);
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
 		*
 		*/
 		for (size_t i = 0; i < easm.bindings_size; ++i) {
-			fprintf(symbol_file, "%lu \t%.*s\n", easm.bindings[i].value.as_u64, (int)easm.bindings[i].name.count, easm.bindings[i].name.data);
+			fprintf(symbol_file, "%lu \t"SV_Fmt"\n", easm.bindings[i].value.as_u64, SV_Arg(easm.bindings[i].name));
 		}
 		fclose(symbol_file);
 	}

@@ -15,7 +15,7 @@ Edb_Err edb_state_init(Edb_State *state, const char *executable) {
 	assert(state);
 	assert(executable);
 
-	state->code_file_name = cstr_as_sv(executable);
+	state->code_file_name = sv_form_cstr(executable);
 	evm_load_program_from_file(&state->evm, executable);
 	evm_load_standard_natives(&state->evm);
 
@@ -193,7 +193,7 @@ int main(int argc, char **argv) {
 		printf("(edb) ");
         	char input_buf[32] = { 0 };
         	fgets(input_buf, 32, stdin);
-		String_View input_sv = cstr_as_sv(input_buf);
+		String_View input_sv = sv_form_cstr(input_buf);
             	String_View control_word = sv_trim(sv_chop_by_delim(&input_sv, ' '));
         	switch (*control_word.data) {
         		case 'n': {
@@ -216,13 +216,13 @@ int main(int argc, char **argv) {
 
 				Inst_Addr where = 0;
             			if (edb_parse_label_or_addr(&state, where_sv, &where) == EDB_FAIL) {
-                			fprintf(stderr, "ERR : Cannot parse address or label `%.*s`\n", SV_FORMAT(where_sv));
+                			fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(where_sv));
                 			continue;
             			}
 
 				Inst_Addr count = 0;
             			if (edb_parse_label_or_addr(&state, count_sv, &count) == EDB_FAIL) {
-        				fprintf(stderr, "ERR : Cannot parse address or label `%.*s`\n", SV_FORMAT(count_sv));
+        				fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(count_sv));
         				continue;
             			}
 
