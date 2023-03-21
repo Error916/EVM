@@ -385,18 +385,23 @@ int main(int argc, char **argv) {
 	printf("\tret\n");
 	printf("segment .data\n");
 	printf("stack_top: dq stack\n");
-	printf("inst_map: dq");
-    	for (size_t i = 0; i < easm.program_size; ++i) {
-		printf(" inst_%zu,", i);
+	printf("inst_map:\n");
+#define ROW_SIZE 5
+#define ROW_COUNT(size) ((size + ROW_SIZE - 1) / ROW_SIZE)
+#define INDEX(row, col) ((row) * ROW_SIZE + (col))
+    	for (size_t row = 0; row < ROW_COUNT(easm.program_size); ++row) {
+        	printf("  dq");
+        	for (size_t col = 0; col < ROW_SIZE && INDEX(row, col) < easm.program_size; ++col) {
+            		printf(" inst_%zu,", INDEX(row, col));
+        	}
+        	printf("\n");
     	}
 	printf("\n");
     	printf("memory:\n");
-#define ROW_SIZE 10
-#define ROW_COUNT(size) ((size + ROW_SIZE - 1) / ROW_SIZE)
     	for (size_t row = 0; row < ROW_COUNT(easm.memory_size); ++row) {
 		printf("\tdb");
-		for (size_t col = 0; col < ROW_SIZE && row * ROW_SIZE + col < easm.memory_size; ++col) {
-			printf(" %u,", easm.memory[row * ROW_SIZE + col]);
+        	for (size_t col = 0; col < ROW_SIZE && INDEX(row, col) < easm.memory_size; ++col) {
+            		printf(" %u,", easm.memory[INDEX(row, col)]);
 		}
 		printf("\n");
     	}
