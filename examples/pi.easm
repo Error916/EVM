@@ -55,6 +55,6 @@ loop:
 drop
 drop
 
-native print_f64
+call dump_f64
 
 halt
