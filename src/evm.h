@@ -222,6 +222,14 @@ const char *arena_sv_to_cstr(Arena *arena, String_View sv);
 String_View arena_sv_concat2(Arena *arena, const char *a, const char *b);
 const char *arena_cstr_concat2(Arena *arena, const char *a, const char *b);
 
+typedef struct {
+    String_View file_path;
+    int line_number;
+} File_Location;
+
+#define FL_Fmt SV_Fmt":%d"
+#define FL_Arg(location) SV_Arg(location.file_path), location.line_number
+
 typedef enum {
     	BINDING_CONST = 0,
     	BINDING_LABEL,
@@ -234,15 +242,8 @@ typedef struct {
 	Binding_Kind kind;
 	String_View name;
 	Word value;
+	File_Location location;
 } Binding;
-
-typedef struct {
-    String_View file_path;
-    int line_number;
-} File_Location;
-
-#define FL_Fmt SV_Fmt":%d"
-#define FL_Arg(location) SV_Arg(location.file_path), location.line_number
 
 typedef struct {
 	Inst_Addr addr;
@@ -273,8 +274,8 @@ typedef struct {
 	size_t include_level;
 } EASM;
 
-bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Binding_Kind *kind);
-bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind);
+bool easm_resolve_binding(const EASM *easm, String_View name, Binding *binding);
+bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind, File_Location location, Binding *existing_binding);
 void easm_push_deferred_operand(EASM *easm, Inst_Addr addr, String_View name, File_Location location);
 bool easm_translate_literal(EASM *easm, String_View sv, Word *output);
 void easm_save_to_file(EASM *easm, const char *output_file_path);
@@ -995,11 +996,10 @@ void *arena_alloc(Arena *arena, size_t size) {
 	return result;
 }
 
-bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Binding_Kind *kind) {
+bool easm_resolve_binding(const EASM *easm, String_View name, Binding *binding) {
 	for (size_t i = 0; i < easm->bindings_size; ++i) {
 		if (sv_eq(easm->bindings[i].name, name)) {
-			if (output) *output = easm->bindings[i].value;
-            		if (kind) *kind = easm->bindings[i].kind;
+			if (binding) *binding = easm->bindings[i];
 			return true;
 		}
 	}
@@ -1007,10 +1007,15 @@ bool easm_resolve_binding(const EASM *easm, String_View name, Word *output, Bind
 	return false;
 }
 
-bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind) {
+bool easm_bind_value(EASM *easm, String_View name, Word word, Binding_Kind kind, File_Location location, Binding *existing_binding) {
 	assert(easm->bindings_size < EASM_BINDINGS_CAPACITY);
-	if (easm_resolve_binding(easm, name, NULL, NULL)) return false;
-	easm->bindings[easm->bindings_size++] = (Binding) { .name = name, .value = word, .kind = kind };
+	if (easm_resolve_binding(easm, name, existing_binding)) return false;
+	easm->bindings[easm->bindings_size++] = (Binding) {
+		.name = name,
+		.value = word,
+		.kind = kind,
+		.location = location,
+	};
 	return true;
 }
 
@@ -1091,8 +1096,10 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 							exit(1);
 						}
 
-						if (!easm_bind_value(easm, label, word, BINDING_CONST)) {
+						Binding existing = {0};
+                        			if (!easm_bind_value(easm, label, word, BINDING_CONST, location, &existing)) {
 							fprintf(stderr, FL_Fmt": ERROR: label '"SV_Fmt"' is allready define\n", FL_Arg(location), SV_Arg(label));
+	                    				fprintf(stderr, FL_Fmt": NOTE: first binding is located here\n", FL_Arg(existing.location));
 							exit(1);
 						}
 					} else {
@@ -1111,8 +1118,10 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
                             				exit(1);
                         			}
 
-                        			if (!easm_bind_value(easm, name, word, BINDING_NATIVE)) {
+						Binding existing = {0};
+                        			if (!easm_bind_value(easm, name, word, BINDING_NATIVE, location, &existing)) {
                             				fprintf(stderr, FL_Fmt": ERROR: name `"SV_Fmt"` is already bound\n", FL_Arg(location), SV_Arg(name));
+	                    				fprintf(stderr, FL_Fmt": NOTE: first binding is located here\n", FL_Arg(existing.location));
                             				exit(1);
                         			}
                     			} else {
@@ -1176,8 +1185,11 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						.count = token.count - 1,
 						.data = token.data,
 					};
-					if (!easm_bind_value(easm, label, word_u64(easm->program_size), BINDING_LABEL)) {
-						fprintf(stderr, FL_Fmt": ERROR: label '"SV_Fmt"' is allready define\n", FL_Arg(location), SV_Arg(label));
+
+					Binding existing = {0};
+					if (!easm_bind_value(easm, label, word_u64(easm->program_size), BINDING_LABEL, location, &existing)) {
+						fprintf(stderr, FL_Fmt": ERROR: label '"SV_Fmt"' is already define\n", FL_Arg(location), SV_Arg(label));
+						fprintf(stderr, FL_Fmt": NOTE: the first entry point\n", FL_Arg(easm->entry_location));
 						exit(1);
 					}
 					token = sv_trim(sv_chop_by_delim(&line, ' '));
@@ -1214,38 +1226,39 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 	for (size_t i = 0; i < easm->deferred_operands_size; ++i) {
 		String_View label = easm->deferred_operands[i].label;
 		Inst_Addr addr = easm->deferred_operands[i].addr;
-        	Binding_Kind kind;
-		if (!easm_resolve_binding(easm, label, &easm->program[addr].operand, &kind)) {
+		Binding binding = {0};
+		if (!easm_resolve_binding(easm, label, &binding)) {
 			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->deferred_operands[i].location), SV_Arg(label));
 			exit(1);
 		}
 
-		if (easm->program[addr].type == INST_CALL && kind != BINDING_LABEL) {
-            		fprintf(stderr, FL_Fmt": ERROR: trying to call not a label. `"SV_Fmt"` is %s, but the call instructions accepts only literals or bindings.\n", FL_Arg(easm->deferred_operands[i].location), SV_Arg(label), binding_kind_as_cstr(kind));
+		if (easm->program[addr].type == INST_CALL && binding.kind != BINDING_LABEL) {
+            		fprintf(stderr, FL_Fmt": ERROR: trying to call not a label. `"SV_Fmt"` is %s, but the call instructions accepts only literals or bindings.\n", FL_Arg(easm->deferred_operands[i].location), SV_Arg(label), binding_kind_as_cstr(binding.kind));
             		exit(1);
         	}
 
-        	if (easm->program[addr].type == INST_NATIVE && kind != BINDING_NATIVE) {
-            		fprintf(stderr, FL_Fmt": ERROR: trying to invoke native function from a binding that is %s. Bindings for native functions have to be defined via `%%native` easm directive.\n", FL_Arg(easm->deferred_operands[i].location), binding_kind_as_cstr(kind));
+        	if (easm->program[addr].type == INST_NATIVE && binding.kind != BINDING_NATIVE) {
+            		fprintf(stderr, FL_Fmt": ERROR: trying to invoke native function from a binding that is %s. Bindings for native functions have to be defined via `%%native` easm directive.\n", FL_Arg(easm->deferred_operands[i].location), binding_kind_as_cstr(binding.kind));
             		exit(1);
        	 	}
+
+		easm->program[addr].operand = binding.value;
 	}
 
-	// Resolving entry point
+	// Resolving deferred entry point
 	if (easm->has_entry && easm->deferred_entry_binding_name.count > 0) {
-		Word output = { 0 };
-        	Binding_Kind kind;
-		if (!easm_resolve_binding(easm, easm->deferred_entry_binding_name, &output, &kind)) {
+		Binding binding = {0};
+		if (!easm_resolve_binding(easm, easm->deferred_entry_binding_name, &binding)) {
 			fprintf(stderr, FL_Fmt": ERROR: unknown label '"SV_Fmt"'\n", FL_Arg(easm->entry_location), SV_Arg(easm->deferred_entry_binding_name));
 			exit(1);
 		}
 
-		if (kind != BINDING_LABEL) {
-            		fprintf(stderr, FL_Fmt": ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", FL_Arg(easm->entry_location), binding_kind_as_cstr(kind));
+		if (binding.kind != BINDING_LABEL) {
+            		fprintf(stderr, FL_Fmt": ERROR: trying to set a %s as an entry point. Entry point has to be a label.\n", FL_Arg(easm->entry_location), binding_kind_as_cstr(binding.kind));
             		exit(1);
         	}
 
-		easm->entry = output.as_u64;
+		easm->entry = binding.value.as_u64;
 	}
 }
 
@@ -1381,12 +1394,9 @@ String_View arena_sv_concat2(Arena *arena, const char *a, const char *b) {
 void evm_load_standard_natives(EVM *evm) {
 	evm_push_native(evm, evm_alloc);	// 0
 	evm_push_native(evm, evm_free);		// 1
-	evm_push_native(evm, evm_print_u64);	// 2
-	evm_push_native(evm, evm_print_i64);	// 3
-	evm_push_native(evm, evm_print_f64);	// 4
-	evm_push_native(evm, evm_print_ptr);	// 5
-	evm_push_native(evm, evm_print_memory);	// 6
-	evm_push_native(evm, evm_write);	// 7
+	evm_push_native(evm, evm_print_ptr);	// 2
+	evm_push_native(evm, evm_print_memory);	// 3
+	evm_push_native(evm, evm_write);	// 4
 }
 
 Err evm_alloc(EVM *evm) {
@@ -1401,33 +1411,6 @@ Err evm_free(EVM *evm) {
 	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
 
 	free(evm->stack[evm->stack_size].as_ptr);
-	evm->stack_size -= 1;
-
-	return ERR_OK;
-}
-
-Err evm_print_u64(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	printf("%lu\n", evm->stack[evm->stack_size - 1].as_u64);
-	evm->stack_size -= 1;
-
-	return ERR_OK;
-}
-
-Err evm_print_i64(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	printf("%ld\n", evm->stack[evm->stack_size - 1].as_i64);
-	evm->stack_size -= 1;
-
-	return ERR_OK;
-}
-
-Err evm_print_f64(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	printf("%lf\n", evm->stack[evm->stack_size - 1].as_f64);
 	evm->stack_size -= 1;
 
 	return ERR_OK;

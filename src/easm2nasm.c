@@ -228,10 +228,7 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_NATIVE: {
-				if (inst.operand.as_u64 == 3) {
-					printf("\t;; native print_i64\n");
-					printf("\tcall print_i64\n");
-				} else if (inst.operand.as_u64 == 7) {
+				if (inst.operand.as_u64 == 4) {
 					printf("\t;; native write\n");
 					printf("\tmov r11, [stack_top]\n");
 					printf("\tsub r11, EVM_WORD_SIZE\n");
