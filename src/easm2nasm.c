@@ -105,7 +105,15 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_MULTI: {
-	    			printf("\t;; FIXME: multi\n");
+				printf("\t;; multi\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], r11\n");
+				printf("\tmov rax, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov rbx, [r11]\n");
+				printf("\timul rax, rbx\n");
+				printf("\tmov [r11], rax\n");
 			} break;
 
 			case INST_MULTU: UNIMPLEMENTED("INST_MULTU");
@@ -167,19 +175,51 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_PLUSF: {
-	    			printf("\t;; FIXME: plusf\n");
+				printf("\t;; plusf\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], r11\n");
+				printf("\tmovsd xmm0, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmovsd xmm1, [r11]\n");
+				printf("\taddsd xmm1, xmm0\n");
+				printf("\tmovsd [r11], xmm1\n");
 			} break;
 
 			case INST_MINUSF: {
-	    			printf("\t;; FIXME: minusf\n");
+				printf("\t;; minusf\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], r11\n");
+				printf("\tmovsd xmm0, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmovsd xmm1, [r11]\n");
+				printf("\tsubsd xmm1, xmm0\n");
+				printf("\tmovsd [r11], xmm1\n");
 			} break;
 
 			case INST_MULTF: {
-	    			printf("\t;; FIXME: multf\n");
+				printf("\t;; multf\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], r11\n");
+				printf("\tmovsd xmm0, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmovsd xmm1, [r11]\n");
+				printf("\tmulsd xmm1, xmm0\n");
+				printf("\tmovsd [r11], xmm1\n");
 			} break;
 
 			case INST_DIVF: {
-	    			printf("\t;; FIXME: divf\n");
+				printf("\t;; divf\n");
+				printf("\tmov r11, [stack_top]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmov [stack_top], r11\n");
+				printf("\tmovsd xmm0, [r11]\n");
+				printf("\tsub r11, EVM_WORD_SIZE\n");
+				printf("\tmovsd xmm1, [r11]\n");
+				printf("\tdivsd xmm1, xmm0\n");
+				printf("\tmovsd [r11], xmm1\n");
 			} break;
 
 			case INST_JMP: {
