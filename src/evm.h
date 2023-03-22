@@ -58,7 +58,7 @@ typedef struct {
 //   printf("Name: %"SV_Fmt"\n", SV_Arg(name));
 //   printf("Name: "SV_Fmt"\n", SV_Arg(name));
 
-String_View sv_form_cstr(const char *cstr);
+String_View sv_from_cstr(const char *cstr);
 bool sv_eq(String_View a, String_View b);
 uint64_t sv_to_u64(String_View sv);
 String_View sv_trim_left(String_View sv);
@@ -91,6 +91,7 @@ typedef enum {
 	ERR_ILLEGAL_MEMORY_ACCESS,
 	ERR_ILLEGAL_OPERAND,
 	ERR_DIV_BY_ZERO,
+	ERR_NULL_NATIVE,
 } Err;
 
 const char *err_as_cstr(Err err);
@@ -322,6 +323,7 @@ const char *err_as_cstr(Err err) {
 		case ERR_ILLEGAL_MEMORY_ACCESS: 	return "ERR_ILLEGAL_MEMORY_ACCESS";
 		case ERR_ILLEGAL_OPERAND:		return "ERR_ILLEGAL_OPERAND";
 		case ERR_DIV_BY_ZERO:			return "ERR_DIV_BY_ZERO";
+		case ERR_NULL_NATIVE:			return "ERR_NULL_NATIVE";
 		default: UNREACHABLE("NOT EXISTING ERR");
 	}
 }
@@ -462,7 +464,7 @@ int inst_has_operand(Inst_Type type) {
 
 bool inst_by_name(String_View name, Inst_Type *type) {
 	for (Inst_Type t = (Inst_Type) 0; t < EASM_NUMBER_OF_INSTS; ++t) {
-		if (sv_eq(sv_form_cstr(inst_name(t)), name)) {
+		if (sv_eq(sv_from_cstr(inst_name(t)), name)) {
 			*type = t;
 			return true;
 		}
@@ -595,6 +597,7 @@ Err evm_execute_inst(EVM *evm) {
 
 		case INST_NATIVE:
 			if (inst.operand.as_u64 > evm->natives_size) return ERR_ILLEGAL_OPERAND;
+			if (!evm->natives[inst.operand.as_u64]) { return ERR_NULL_NATIVE; }
 			const Err err = evm->natives[inst.operand.as_u64](evm);
 			if (err != ERR_OK) return err;
 			evm->ip += 1;
@@ -866,7 +869,7 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	Evm_File_Meta meta = { 0 };
 	size_t n = fread(&meta, sizeof(meta), 1, f);
 	if (n < 1) {
-		fprintf(stderr, "ERROR: Could not read meta data form file %s: %s\n", file_path, strerror(errno));
+		fprintf(stderr, "ERROR: Could not read meta data from file %s: %s\n", file_path, strerror(errno));
 		exit(1);
 	}
 
@@ -915,7 +918,7 @@ void evm_load_program_from_file(EVM *evm, const char *file_path) {
 	fclose(f);
 }
 
-String_View sv_form_cstr(const char *cstr) {
+String_View sv_from_cstr(const char *cstr) {
 	return (String_View) {
 		.count = strlen(cstr),
 		.data = cstr,
@@ -1084,7 +1087,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 			if (token.count > 0 && token.data[0] == EASM_PP_CHAR) {
 				token.count -= 1;
 				token.data += 1;
-				if (sv_eq(token, sv_form_cstr("const"))) {
+				if (sv_eq(token, sv_from_cstr("const"))) {
 					line = sv_trim(line);
 					String_View label = sv_chop_by_delim(&line, ' ');
 					if (label.count > 0) {
@@ -1106,7 +1109,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						fprintf(stderr, FL_Fmt": ERROR: label name in not provided\n", FL_Arg(location));
 						exit(1);
 					}
-				} else if (sv_eq(token, sv_form_cstr("native"))) {
+				} else if (sv_eq(token, sv_from_cstr("native"))) {
                     			line = sv_trim(line);
                     			String_View name = sv_chop_by_delim(&line, ' ');
                     			if (name.count > 0) {
@@ -1128,7 +1131,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
                         			fprintf(stderr, FL_Fmt": ERROR: binding name is not provided\n", FL_Arg(location));
                         			exit(1);
                     			}
-				} else if (sv_eq(token, sv_form_cstr("include"))) {
+				} else if (sv_eq(token, sv_from_cstr("include"))) {
 					line = sv_trim(line);
 					if (line.count > 0) {
 						if (line.data[0] == '"' && line.data[line.count - 1] == '"') {
@@ -1151,7 +1154,7 @@ void easm_translate_source(EASM *easm, String_View input_file_path) {
 						fprintf(stderr, FL_Fmt": ERROR: include file path is not provided\n", FL_Arg(location));
 						exit(1);
 					}
-				} else if (sv_eq(token, sv_form_cstr("entry"))) {
+				} else if (sv_eq(token, sv_from_cstr("entry"))) {
 					if (easm->has_entry) {
 						fprintf(stderr, FL_Fmt": ERROR: entry point has been already set!\n", FL_Arg(location));
 						fprintf(stderr, FL_Fmt": NOTE: the first entry point\n", FL_Arg(easm->entry_location));
@@ -1392,54 +1395,7 @@ String_View arena_sv_concat2(Arena *arena, const char *a, const char *b) {
 }
 
 void evm_load_standard_natives(EVM *evm) {
-	evm_push_native(evm, evm_alloc);	// 0
-	evm_push_native(evm, evm_free);		// 1
-	evm_push_native(evm, evm_print_ptr);	// 2
-	evm_push_native(evm, evm_print_memory);	// 3
-	evm_push_native(evm, evm_write);	// 4
-}
-
-Err evm_alloc(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	evm->stack[evm->stack_size - 1].as_ptr = malloc(evm->stack[evm->stack_size].as_u64);
-
-	return ERR_OK;
-}
-
-Err evm_free(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	free(evm->stack[evm->stack_size].as_ptr);
-	evm->stack_size -= 1;
-
-	return ERR_OK;
-}
-
-Err evm_print_ptr(EVM *evm) {
-	if (evm->stack_size < 1) return ERR_STACK_UNDERFLOW;
-
-	printf("%p\n", evm->stack[evm->stack_size - 1].as_ptr);
-	evm->stack_size -= 1;
-
-	return ERR_OK;
-}
-
-Err evm_print_memory(EVM *evm) {
-	if (evm->stack_size < 2) return ERR_STACK_UNDERFLOW;
-	Memory_Addr addr = evm->stack[evm->stack_size - 2].as_u64;
-	uint64_t count = evm->stack[evm->stack_size - 1].as_u64;
-
-	if (addr >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
-	if (addr + count < addr || addr + count >= EVM_MEMORY_CAPACITY) return ERR_ILLEGAL_MEMORY_ACCESS;
-
-	for (uint64_t i = 0; i < count; ++i) {
-		printf("%02X ", evm->memory[addr + i]);
-	}
-	printf("\n");
-	evm->stack_size -= 2;
-
-	return ERR_OK;
+	evm_push_native(evm, evm_write);	// 0
 }
 
 Err evm_write(EVM *evm) {

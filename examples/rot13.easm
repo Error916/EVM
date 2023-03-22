@@ -3,8 +3,8 @@
 ; only this string needs to be changed
 #const secret "Uryyb, jbeyq! Sebz EBG13."
 
-; this small hack will take care of length of string
-#const length ""
+; this small hack will take care of secret_end of string
+#const secret_end ""
 
 #const ROT13 13
 #const MOD   26
@@ -84,20 +84,22 @@ loop:
 		plusi
 
 		dup 0
-		push length
+		push secret_end
 		eqi
 		not
 		jmp_if loop
 
 print:
-	push length
+	push secret_end
 	push 10
 	write8
 
 	push secret
 	push 1
-	push length
+	push secret_end
 	plusi
+	push secret
+    	minusi
 	native write
 
 	halt

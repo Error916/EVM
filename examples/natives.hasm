@@ -1,8 +1,4 @@
-#native alloc 0
-#native free 1
-#native print_ptr 2
-#native dump_memory 3
-#native write 4
+#native write 0
 
 #const print_memory "******************************"
 #const FRAC_PRECISION 10

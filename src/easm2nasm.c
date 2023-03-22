@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
 
 	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
 	static EASM easm = { 0 };
-	easm_translate_source(&easm, sv_form_cstr(argv[1]));
+	easm_translate_source(&easm, sv_from_cstr(argv[1]));
 
 	printf("BITS 64\n");
 	printf("%%define EVM_STACK_CAPACITY %d\n", EVM_STACK_CAPACITY);
@@ -35,6 +35,15 @@ int main(int argc, char **argv) {
 		if (i == easm.entry) {
 	    		printf("_start:\n");
 		}
+
+		for (size_t j = 0; j < EASM_BINDINGS_CAPACITY; ++j) {
+            		if (easm.bindings[j].kind != BINDING_LABEL) continue;
+
+            		if (easm.bindings[j].value.as_u64 == i) {
+                		printf("\n;; "SV_Fmt":\n", SV_Arg(easm.bindings[j].name));
+                		break;
+            		}
+        	}
 
 		printf("inst_%zu:\n", i);
 		switch (inst.type) {
@@ -268,7 +277,7 @@ int main(int argc, char **argv) {
 			} break;
 
 			case INST_NATIVE: {
-				if (inst.operand.as_u64 == 4) {
+				if (inst.operand.as_u64 == 0) {
 					printf("\t;; native write\n");
 					printf("\tmov r11, [stack_top]\n");
 					printf("\tsub r11, EVM_WORD_SIZE\n");

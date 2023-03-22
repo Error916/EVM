@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 	// NOTE: The structure might be quite big due its arena. Better allocate it in the static memory.
 	static EASM easm = { 0 };
 
-	easm_translate_source(&easm, sv_form_cstr(input_file_path));
+	easm_translate_source(&easm, sv_from_cstr(input_file_path));
 
 	if (!easm.has_entry) {
 		fprintf(stderr, "%s: ERROR: entry point for EVM not provided. Use preprocessor directive #entry to provide the entry point\n", input_file_path);
