@@ -23,7 +23,7 @@ void build_examples(void) {
 		if (*example != '.') {
 			assert(n >= 4);
 			if (strcmp(example + n - 4, "easm") == 0) {
-				const char *example_base = remove_ext(example);
+				const char *example_base = NOEXT(example);
 				CMD(PATH("build", "bin", "easm"), "-g",
 					PATH("examples", example),
 					PATH("build", "examples", CONCAT(example_base, ".evm")));
@@ -59,7 +59,7 @@ void run_tests(void) {
 		if (*example != '.') {
 			assert(n >= 4);
 			if (strcmp(example + n - 4, "easm") == 0) {
-				const char *example_base = remove_ext(example);
+				const char *example_base = NOEXT(example);
 				CMD(PATH("build", "bin", "evmr"),
 					"-p", PATH("build", "examples", CONCAT(example_base, ".evm")),
 					"-eo", PATH("test", "examples", CONCAT(example_base, ".expected.out")));
@@ -74,7 +74,7 @@ void record_tests(void) {
         	if (*example != '.') {
         		assert(n >= 4);
             		if (strcmp(example + n - 4, "easm") == 0) {
-                		const char *example_base = remove_ext(example);
+                		const char *example_base = NOEXT(example);
                 		CMD(PATH("build", "bin", "evmr"),
                     			"-p", PATH("build", "examples", CONCAT(example_base, ".evm")),
                     			"-ao", PATH("test", "examples", CONCAT(example_base, ".expected.out")));
@@ -103,6 +103,8 @@ int main(int argc, char **argv) {
 		print_help(stdout);
 		exit(0);
 	}
+
+	RM("build");
 
 	build_toolchain();
 	build_examples();
