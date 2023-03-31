@@ -7,6 +7,8 @@
 #define EVM_IMPLEMENTATION
 #include "./evm.h"
 
+#define INPUT_CAPACITY 32
+
 static void usage(void) {
 	fprintf(stderr, "usage: edb <executable>\n");
 }
@@ -38,6 +40,111 @@ Edb_Err edb_load_symtab(Edb_State *state, String_View symtab_file) {
     	}
 
     return EDB_OK;
+}
+
+Edb_Err edb_run_command(Edb_State *state, String_View command_word, String_View arguments) {
+	switch (*command_word.data) {
+		case 'n': {
+			Edb_Err err = edb_step_instr(state);
+			if (err) return EXIT_FAILURE;
+
+			printf("-> ");
+			edb_print_instr(stdout, &state->evm.program[state->evm.ip]);
+			printf("\n");
+		} break;
+
+		case 'i': {
+			printf("ip = %lu \n", state->evm.ip);
+		} break;
+
+		case 'x': {
+			arguments = sv_trim(arguments);
+			String_View where_sv = sv_chop_by_delim(&arguments, ' ');
+			String_View count_sv = arguments;
+
+			Inst_Addr where = 0;
+			if (edb_parse_label_or_addr(state, where_sv, &where) == EDB_FAIL) {
+				fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(where_sv));
+				return EDB_FAIL;
+			}
+
+			Inst_Addr count = 0;
+			if (edb_parse_label_or_addr(state, count_sv, &count) == EDB_FAIL) {
+				fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(count_sv));
+				return EDB_FAIL;
+			}
+
+			for (Inst_Addr i = 0; i < count && where + i < EVM_MEMORY_CAPACITY; ++i) {
+				printf("%02X ", state->evm.memory[where + i]);
+			}
+			printf("\n");
+		} break;
+
+		case 's': {
+			evm_dump_stack(stdout, &state->evm);
+		} break;
+
+		case 'b': {
+			Inst_Addr break_addr;
+			String_View addr = sv_trim(arguments);
+
+			if (edb_parse_label_or_addr(state, addr, &break_addr) == EDB_FAIL) {
+				fprintf(stderr, "ERR : Cannot parse address or label\n");
+				return EDB_FAIL;
+			}
+
+			edb_add_breakpoint(state, break_addr);
+			fprintf(stdout, "INFO : Breakpoint set at %lu\n", break_addr);
+		} break;
+
+		case 'd': {
+			Inst_Addr break_addr;
+			String_View addr = sv_trim(arguments);
+
+			if (edb_parse_label_or_addr(state, addr, &break_addr) == EDB_FAIL) {
+				fprintf(stderr, "ERR : Cannot parse address or label\n");
+				return EDB_FAIL;
+			}
+
+			edb_delete_breakpoint(state, break_addr);
+			fprintf(stdout, "INFO : Deleted breakpoint at %lu\n", break_addr);
+		} break;
+
+		case 'r':
+			if (!state->evm.halt) {
+				// TODO: Reset evm and restart program
+				fprintf(stderr, "ERR : Program is already running\n");
+			}
+
+			state->evm.halt = 0;
+		// fall through
+
+		case 'c':
+			if (edb_continue(state)) return EXIT_FAILURE;
+		break;
+
+		case EOF:
+		case 'q':
+			return EDB_EXIT;
+
+		case 'h':
+			printf("r - run program\n"
+				"n - next instruction\n"
+				"c - continue program execution\n"
+				"s - stack dump\n"
+				"i - instruction pointer\n"
+				"x - inspect the memory\n"
+				"b - set breakpoint at address or label\n"
+				"d - destroy breakpoint at address or label\n"
+				"q - quit\n");
+		break;
+
+		default:
+			fprintf(stderr, "?\n");
+		break;
+	}
+
+	 return EDB_OK;
 }
 
 Edb_Err edb_step_instr(Edb_State *state) {
@@ -189,114 +296,29 @@ int main(int argc, char **argv) {
         	fprintf(stderr, "FATAL : Unable to initialize the debugger: %s\n", strerror(errno));
     	}
 
+    	char previous_command[INPUT_CAPACITY] = { 0 };
     	while (!feof(stdin)) {
 		printf("(edb) ");
-        	char input_buf[32] = { 0 };
-        	fgets(input_buf, 32, stdin);
+        	char input_buf[INPUT_CAPACITY] = { 0 };
+        	fgets(input_buf, INPUT_CAPACITY, stdin);
 		String_View input_sv = sv_from_cstr(input_buf);
             	String_View control_word = sv_trim(sv_chop_by_delim(&input_sv, ' '));
-        	switch (*control_word.data) {
-        		case 'n': {
-            			Edb_Err err = edb_step_instr(&state);
-            			if (err) return EXIT_FAILURE;
+		if (control_word.count == 0) {
+			if (*previous_command == '\0') {
+				fprintf(stderr, "ERR : No previous command\n");
+				continue;
+			}
+			input_sv = sv_from_cstr(previous_command);
+            		control_word = sv_trim(sv_chop_by_delim(&input_sv, ' '));
+		}
 
-            			printf("-> ");
-            			edb_print_instr(stdout, &state.evm.program[state.evm.ip]);
-            			printf("\n");
-        		} break;
-
-			case 'i': {
-            			printf("ip = %lu \n", state.evm.ip);
-        		} break;
-
-			case 'x': {
-				input_sv = sv_trim(input_sv);
-				String_View where_sv = sv_chop_by_delim(&input_sv, ' ');
-				String_View count_sv = input_sv;
-
-				Inst_Addr where = 0;
-            			if (edb_parse_label_or_addr(&state, where_sv, &where) == EDB_FAIL) {
-                			fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(where_sv));
-                			continue;
-            			}
-
-				Inst_Addr count = 0;
-            			if (edb_parse_label_or_addr(&state, count_sv, &count) == EDB_FAIL) {
-        				fprintf(stderr, "ERR : Cannot parse address or label `"SV_Fmt"`\n", SV_Arg(count_sv));
-        				continue;
-            			}
-
-            			for (Inst_Addr i = 0; i < count && where + i < EVM_MEMORY_CAPACITY; ++i) {
-                			printf("%02X ", state.evm.memory[where + i]);
-            			}
-            			printf("\n");
-			} break;
-
-			case 's': {
-            			evm_dump_stack(stdout, &state.evm);
-        		} break;
-
-			case 'b': {
-            			Inst_Addr break_addr;
-				String_View addr = sv_trim(input_sv);
-
-            			if (edb_parse_label_or_addr(&state, addr, &break_addr) == EDB_FAIL) {
-            		    		fprintf(stderr, "ERR : Cannot parse address or label\n");
-                			continue;
-            			}
-
-            			edb_add_breakpoint(&state, break_addr);
-            			fprintf(stdout, "INFO : Breakpoint set at %lu\n", break_addr);
-        		} break;
-
-			case 'd': {
-            			Inst_Addr break_addr;
-				String_View addr = sv_trim(input_sv);
-
-            			if (edb_parse_label_or_addr(&state, addr, &break_addr) == EDB_FAIL) {
-                			fprintf(stderr, "ERR : Cannot parse address or label\n");
-                			continue;
-            			}
-
-            			edb_delete_breakpoint(&state, break_addr);
-            			fprintf(stdout, "INFO : Deleted breakpoint at %lu\n", break_addr);
-        		} break;
-
-        		case 'r':
-            			if (!state.evm.halt) {
-                			// TODO: Reset evm and restart program
-                			fprintf(stderr, "ERR : Program is already running\n");
-            			}
-
-            			state.evm.halt = 0;
-        		// fall through
-
-			case 'c':
-            			if (edb_continue(&state)) return EXIT_FAILURE;
-        		break;
-
-			case EOF:
-        		case 'q':
-            			return EXIT_SUCCESS;
-
-        		case 'h':
-            			printf("r - run program\n"
-                   			"n - next instruction\n"
-                   			"c - continue program execution\n"
-                   			"s - stack dump\n"
-                   			"i - instruction pointer\n"
-					"x - inspect the memory\n"
-                   			"b - set breakpoint at address or label\n"
-                   			"d - destroy breakpoint at address or label\n"
-                   			"q - quit\n");
-        		break;
-
-			default:
-            			fprintf(stderr, "?\n");
-        		break;
-        	}
-    	}
-
-    	return EXIT_SUCCESS;
+		Edb_Err err = edb_run_command(&state, control_word, input_sv);
+		if ((err == EDB_OK) && (*input_buf != '\n') ) {
+			memcpy(previous_command, input_buf, sizeof(char) * INPUT_CAPACITY);
+		} else if (err == EDB_EXIT) {
+			printf("Bye\n");
+            		return EXIT_SUCCESS;
+		}
+	}
 }
 

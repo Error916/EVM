@@ -43,7 +43,7 @@
 #define EASM_PP_CHAR '#'
 #define EASM_MAX_INCLUDE_LEVEL 64
 
-#define ARENA_CAPACITY (1000 * 1000 * 1000)
+#define ARENA_CAPACITY (640 * 1000)
 
 typedef struct {
 	size_t count;

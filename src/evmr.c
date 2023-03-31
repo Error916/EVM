@@ -132,8 +132,7 @@ int main(int argc, char **argv) {
 
 	evm_load_program_from_file(&evm, program_file_path);
 
-	evm.natives_size = 8;
-	evm.natives[0] = evmr_write;
+    	evm_push_native(&evm, evmr_write); 	// 0
 
 	Err err = evm_execute_program(&evm, -1);
 	if (err != ERR_OK) {

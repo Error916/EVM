@@ -29,6 +29,7 @@ Edb_Err edb_step_instr(Edb_State *state);
 Edb_Err edb_continue(Edb_State *state);
 Edb_Err edb_find_addr_of_label(Edb_State *state, String_View name, Inst_Addr *out);
 Edb_Err edb_parse_label_or_addr(Edb_State *st, String_View in, Inst_Addr *out);
+Edb_Err edb_run_command(Edb_State *, String_View command_word, String_View arguments);
 void edb_print_instr(FILE *f, Inst *i);
 void edb_add_breakpoint(Edb_State *state, Inst_Addr addr);
 void edb_delete_breakpoint(Edb_State *state, Inst_Addr addr);
